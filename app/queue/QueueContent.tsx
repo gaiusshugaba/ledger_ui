@@ -7,6 +7,7 @@ import { QueueHeader } from '@/components/QueueHeader';
 import { QueueRow, type QueueInvoice } from '@/components/QueueRow';
 import { normalizeInvoice } from '@/lib/normalizeInvoice';
 import { createClient } from '@/lib/supabase/client';
+import { useCounts } from '@/lib/CountsContext';
 
 type Tab = 'All' | 'Review' | 'Exceptions';
 
@@ -20,6 +21,7 @@ export function QueueContent() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const { refresh: refreshCounts } = useCounts();
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +77,7 @@ export function QueueContent() {
       setInvoices((prev) => [current, ...prev]);
       setToast('Failed to approve — check console');
     } else {
-      await supabase.from('audit_log').insert({
+      const { error: auditErr } = await supabase.from('audit_log').insert({
         actor: CURRENT_ACTOR,
         action: 'invoice_reconciled',
         entity_type: 'invoice',
@@ -87,7 +89,11 @@ export function QueueContent() {
           vendor: current.company,
         },
       });
+      if (auditErr) {
+        console.warn('[queue] audit insert failed:', auditErr);
+      }
       setToast(`Approved ${current.invoiceNumber}`);
+      refreshCounts();
     }
 
     setBusyIds((s) => {

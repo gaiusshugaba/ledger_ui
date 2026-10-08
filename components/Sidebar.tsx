@@ -1,6 +1,6 @@
+// components/Sidebar.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
   LayoutGrid,
@@ -15,7 +15,7 @@ import {
   UsersRound,
   ChevronsUpDown,
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { useCounts } from '@/lib/CountsContext';
 
 type NavItem = {
   label: string;
@@ -27,52 +27,32 @@ type NavItem = {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [counts, setCounts] = useState({
-    reconciled: 0,
-    reviewQueue: 0,
-    errors: 0,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    const supabase = createClient();
-
-    (async () => {
-      const [reconciled, queue, errors] = await Promise.all([
-        supabase
-          .from('invoices')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'reconciled'),
-        supabase
-          .from('invoices')
-          .select('*', { count: 'exact', head: true })
-          .in('status', ['review_required', 'exception']),
-        supabase
-          .from('errors')
-          .select('*', { count: 'exact', head: true })
-          .eq('resolved', false),
-      ]);
-
-      if (cancelled) return;
-
-      setCounts({
-        reconciled: reconciled.count ?? 0,
-        reviewQueue: queue.count ?? 0,
-        errors: errors.count ?? 0,
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { counts } = useCounts();
 
   const operations: NavItem[] = [
     { label: 'Dashboard', href: '/', icon: LayoutGrid },
     { label: 'Upload', href: '/upload', icon: Upload },
-    { label: 'Reconciled', href: '/reconciled', icon: ClipboardCheck, count: counts.reconciled, countTone: 'success' },
-    { label: 'Review queue', href: '/queue', icon: FileText, count: counts.reviewQueue, countTone: 'danger' },
-    { label: 'Errors', href: '/errors', icon: Wrench, count: counts.errors, countTone: 'danger' },
+    {
+      label: 'Reconciled',
+      href: '/reconciled',
+      icon: ClipboardCheck,
+      count: counts.reconciled,
+      countTone: 'success',
+    },
+    {
+      label: 'Review queue',
+      href: '/queue',
+      icon: FileText,
+      count: counts.reviewQueue,
+      countTone: 'danger',
+    },
+    {
+      label: 'Errors',
+      href: '/errors',
+      icon: Wrench,
+      count: counts.errors,
+      countTone: 'danger',
+    },
   ];
 
   const configuration: NavItem[] = [
@@ -119,7 +99,7 @@ export function Sidebar() {
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   <span className="flex-1 truncate">{item.label}</span>
-                  {typeof item.count === 'number' && (
+                  {typeof item.count === 'number' && item.count > 0 && (
                     <span
                       className={`text-xs font-medium ${
                         isActive ? 'text-white' : toneClass

@@ -13,6 +13,7 @@ import { AutomatedChecks } from '@/components/AutomatedChecks';
 import { ExtractedFields } from '@/components/ExtractedFields';
 import { LineItemsEditor, type LineItemRow } from '@/components/LineItemsEditor';
 import { AuditTrail } from '@/components/AuditTrail';
+import { useCounts } from '@/lib/CountsContext';
 
 const CURRENT_ACTOR = 'G. Gana';
 
@@ -32,6 +33,7 @@ export function ReviewContent() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const router = useRouter();
+  const { refresh: refreshCounts } = useCounts();
 
   const [data, setData] = useState<RawInvoice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -158,7 +160,7 @@ export function ReviewContent() {
 
     setChangesMade((n) => n + 1);
 
-    await supabase.from('audit_log').insert({
+    const { error: auditErr } = await supabase.from('audit_log').insert({
       actor: CURRENT_ACTOR,
       action: 'extraction_field_edited',
       entity_type: 'extraction',
@@ -168,6 +170,7 @@ export function ReviewContent() {
       after_state: { [column.db]: parsed },
       metadata: { invoice_id: data.id, field: column.db },
     });
+    if (auditErr) console.warn('[review] audit insert failed:', auditErr);
 
     setSavingKeys((s) => {
       const next = new Set(s);
@@ -176,6 +179,60 @@ export function ReviewContent() {
     });
 
     setToast(`Saved ${column.label}`);
+  }
+
+  // ── Line items save handler ────────────────────────────
+  async function handleLineItemsChange(next: LineItemRow[]) {
+    if (!data || !ex) return;
+
+    const rawLineItems = next.map((li) => ({
+      description: li.description,
+      qty: li.qty,
+      unit_price: li.unit_price,
+      total: li.total,
+      description_confidence: 0.99,
+      qty_confidence: 0.99,
+      unit_price_confidence: 0.99,
+      total_confidence: 0.99,
+    }));
+
+    const supabase = createClient();
+
+    const { error } = await supabase
+      .from('extractions')
+      .update({ line_items: rawLineItems })
+      .eq('invoice_id', data.id);
+
+    if (error) {
+      console.error('[review] line items update failed:', error);
+      setToast('Failed to save line items');
+      throw error;
+    }
+
+    setData((prev) =>
+      prev && prev.extraction
+        ? {
+            ...prev,
+            extraction: { ...prev.extraction, line_items: rawLineItems },
+          }
+        : prev,
+    );
+
+    setChangesMade((n) => n + 1);
+
+    const { error: auditErr } = await supabase.from('audit_log').insert({
+      actor: CURRENT_ACTOR,
+      action: 'line_items_edited',
+      entity_type: 'extraction',
+      entity_id: ex.invoice_number ?? data.file_name ?? data.id,
+      reason: `Line items updated (${next.length} item${next.length === 1 ? '' : 's'})`,
+      before_state: { line_items: ex.line_items },
+      after_state: { line_items: rawLineItems },
+      metadata: { invoice_id: data.id },
+    });
+    if (auditErr) console.warn('[review] audit insert failed:', auditErr);
+
+    setToast('Line items saved');
   }
 
   // ── Approve / Reject ───────────────────────────────────
@@ -198,7 +255,7 @@ export function ReviewContent() {
       return;
     }
 
-    await supabase.from('audit_log').insert({
+    const { error: auditErr } = await supabase.from('audit_log').insert({
       actor: CURRENT_ACTOR,
       action: 'invoice_reconciled',
       entity_type: 'invoice',
@@ -209,7 +266,9 @@ export function ReviewContent() {
           : 'Approved from review screen',
       metadata: { invoice_id: data.id, changes_made: changesMade },
     });
+    if (auditErr) console.warn('[review] audit insert failed:', auditErr);
 
+    await refreshCounts();
     router.push('/queue');
   }
 
@@ -231,7 +290,7 @@ export function ReviewContent() {
       return;
     }
 
-    await supabase.from('audit_log').insert({
+    const { error: auditErr } = await supabase.from('audit_log').insert({
       actor: CURRENT_ACTOR,
       action: 'invoice_rejected',
       entity_type: 'invoice',
@@ -239,7 +298,9 @@ export function ReviewContent() {
       reason: 'Rejected from review screen',
       metadata: { invoice_id: data.id },
     });
+    if (auditErr) console.warn('[review] audit insert failed:', auditErr);
 
+    await refreshCounts();
     router.push('/queue');
   }
 
@@ -277,10 +338,8 @@ export function ReviewContent() {
 
   return (
     <div className="flex h-screen bg-[#F5F4F1] text-neutral-900">
-      {/* ── Left: viewer ────────────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-4">
-          {/* Left: back, title, status, changes */}
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/queue"
@@ -302,7 +361,6 @@ export function ReviewContent() {
             )}
           </div>
 
-          {/* Right: actions */}
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
@@ -349,16 +407,13 @@ export function ReviewContent() {
         </div>
       </div>
 
-      {/* ── Right: details panel ────────────────────────── */}
       <div className="w-[560px] shrink-0 overflow-y-auto bg-[#F5F4F1] px-6 pt-5 pb-8">
         <div className="space-y-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-neutral-200">
-          {/* WHY THIS IS FLAGGED */}
           <section>
             <SectionLabel>Why this is flagged</SectionLabel>
             <FlaggedReasonCard reasons={flaggedReasons} />
           </section>
 
-          {/* VENDOR MATCH */}
           <section>
             <SectionLabel>Vendor match</SectionLabel>
             <VendorMatchCard
@@ -369,13 +424,11 @@ export function ReviewContent() {
             />
           </section>
 
-          {/* AUTOMATED CHECKS */}
           <section>
             <SectionLabel>Automated checks</SectionLabel>
             <AutomatedChecks checks={checks} />
           </section>
 
-          {/* EXTRACTED FIELDS */}
           <section>
             <SectionLabel>Extracted fields &amp; confidence scores</SectionLabel>
             <ExtractedFields
@@ -448,18 +501,11 @@ export function ReviewContent() {
             />
           </section>
 
-          {/* LINE ITEMS */}
           <section>
             <SectionLabel>Line items</SectionLabel>
-            <LineItemsEditor
-              items={lineItems}
-              pendingEdits={0}
-              onAdd={() => console.log('add line')}
-              onEdit={(i) => console.log('edit line', i)}
-            />
+            <LineItemsEditor items={lineItems} onSave={handleLineItemsChange} />
           </section>
 
-          {/* AUDIT TRAIL */}
           <section>
             <SectionLabel>Audit trail</SectionLabel>
             <AuditTrail
@@ -494,7 +540,6 @@ export function ReviewContent() {
   );
 }
 
-// ── Field → DB column map ─────────────────────────────
 const COLUMN_MAP: Record<
   string,
   { db: string; label: string; numeric: boolean }
@@ -508,7 +553,6 @@ const COLUMN_MAP: Record<
   currency:       { db: 'currency',       label: 'Currency',        numeric: false },
 };
 
-// ── Sub-components ─────────────────────────────────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
@@ -517,7 +561,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Helpers ────────────────────────────────────────────
 function buildReasons(ex: any, match: any): string[] {
   const out: string[] = [];
   if (match?.tier_reason) out.push(String(match.tier_reason));
