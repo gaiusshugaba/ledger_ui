@@ -55,13 +55,11 @@ export function QueueContent() {
     };
   }, []);
 
-  // ── Approve / Reject ───────────────────────────────────
   async function handleApprove(id: string) {
     const current = invoices.find((i) => i.id === id);
     if (!current) return;
 
     setBusyIds((s) => new Set(s).add(id));
-    // Optimistic — remove from queue immediately
     setInvoices((prev) => prev.filter((i) => i.id !== id));
 
     const supabase = createClient();
@@ -74,7 +72,6 @@ export function QueueContent() {
 
     if (updErr) {
       console.error('[queue] approve failed:', updErr);
-      // Roll back
       setInvoices((prev) => [current, ...prev]);
       setToast('Failed to approve — check console');
     } else {
@@ -84,7 +81,11 @@ export function QueueContent() {
         entity_type: 'invoice',
         entity_id: current.invoiceNumber,
         reason: 'Approved from review queue',
-        metadata: { invoice_id: id, amount: current.amount, vendor: current.company },
+        metadata: {
+          invoice_id: id,
+          amount: current.amount,
+          vendor: current.company,
+        },
       });
       setToast(`Approved ${current.invoiceNumber}`);
     }
@@ -96,52 +97,12 @@ export function QueueContent() {
     });
   }
 
-  async function handleReject(id: string) {
-    const current = invoices.find((i) => i.id === id);
-    if (!current) return;
-
-    setBusyIds((s) => new Set(s).add(id));
-    setInvoices((prev) => prev.filter((i) => i.id !== id));
-
-    const supabase = createClient();
-    const now = new Date().toISOString();
-
-    const { error: updErr } = await supabase
-      .from('invoices')
-      .update({ status: 'exception', updated_at: now })
-      .eq('id', id);
-
-    if (updErr) {
-      console.error('[queue] reject failed:', updErr);
-      setInvoices((prev) => [current, ...prev]);
-      setToast('Failed to reject — check console');
-    } else {
-      await supabase.from('audit_log').insert({
-        actor: CURRENT_ACTOR,
-        action: 'invoice_rejected',
-        entity_type: 'invoice',
-        entity_id: current.invoiceNumber,
-        reason: 'Manually rejected from queue',
-        metadata: { invoice_id: id, vendor: current.company },
-      });
-      setToast(`Rejected ${current.invoiceNumber}`);
-    }
-
-    setBusyIds((s) => {
-      const next = new Set(s);
-      next.delete(id);
-      return next;
-    });
-  }
-
-  // Auto-dismiss toast
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // ── Filtering ──────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return invoices.filter((inv) => {
@@ -193,7 +154,6 @@ export function QueueContent() {
                 invoice={invoice}
                 busy={busyIds.has(invoice.id)}
                 onApprove={handleApprove}
-                onReject={handleReject}
               />
             ))
           )}
