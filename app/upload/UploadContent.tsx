@@ -72,6 +72,12 @@ export function UploadContent() {
     };
   }, [refreshKey]);
 
+  // Auto-refresh every 8s so users see pipeline progress live
+  useEffect(() => {
+    const t = setInterval(() => setRefreshKey((k) => k + 1), 8000);
+    return () => clearInterval(t);
+  }, []);
+
   const accuracy = useMemo(() => {
     const confidences = rows
       .map((r) => r.confidence)
@@ -82,14 +88,14 @@ export function UploadContent() {
   }, [rows]);
 
   const onUploaded = useCallback(() => {
-    setRefreshKey((k) => k + 1);
+    // Immediate refresh — n8n writes to invoices within ~1s
+    setTimeout(() => setRefreshKey((k) => k + 1), 800);
   }, []);
 
   return (
     <div className="flex h-screen bg-[#FCFCFA] text-neutral-900">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        {/* Header */}
         <div className="border-b border-neutral-200 px-8 pt-6 pb-5">
           <div className="flex items-start justify-between gap-6">
             <div>
@@ -118,21 +124,21 @@ export function UploadContent() {
           </div>
         </div>
 
-        <div className="px-8 py-6 space-y-6">
-          {/* Drop zone + email card */}
-          <div className="grid grid-cols-[1.55fr_1fr] gap-6">
+        <div className="space-y-6 px-8 py-6">
+          <div className="grid grid-cols-[1.5fr_1fr] gap-6">
             <UploadDropzone onUploaded={onUploaded} />
             <EmailForwardCard email="invoices@ledger.app" />
           </div>
 
-          {/* Recent uploads */}
-          <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
             <div className="flex items-center justify-between gap-4 px-5 py-4">
               <div>
                 <h2 className="text-base font-semibold text-neutral-900">
                   Recent uploads
                 </h2>
-                <p className="mt-0.5 text-xs text-neutral-500">Last 5 uploads</p>
+                <p className="mt-0.5 text-xs text-neutral-500">
+                  Live — auto-refreshes every 8 seconds
+                </p>
               </div>
 
               <button
@@ -153,7 +159,9 @@ export function UploadContent() {
             </div>
 
             {loading ? (
-              <p className="py-16 text-center text-sm text-neutral-400">Loading…</p>
+              <p className="py-16 text-center text-sm text-neutral-400">
+                Loading…
+              </p>
             ) : errorMsg ? (
               <div className="m-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                 <strong>Failed to load:</strong> {errorMsg}
@@ -198,19 +206,41 @@ function normalizeRow(raw: RawInvoice): UploadRow {
   return {
     id: raw.id,
     filename: raw.file_name || '—',
-    source: (raw.source || 'upload').toLowerCase() === 'email' ? 'Email' : 'Upload',
+    source:
+      (raw.source || 'upload').toLowerCase() === 'email' ? 'Email' : 'Upload',
     status: normalizeStatus(raw.status),
     confidence,
     uploadedAt: timeAgo(raw.created_at ?? raw.uploaded_at),
   };
 }
 
+/**
+ * Maps every n8n pipeline status to a UI Status.
+ *
+ * In-flight:  pending → extracting → extracted → matching
+ * Terminal:   reconciled | review_required | exception
+ *             approved_for_payment | rejected | failed
+ */
 function normalizeStatus(s: string | null | undefined): Status {
   const v = (s ?? '').toLowerCase();
-  if (v.startsWith('exc')) return 'Exception';
+
+  if (
+    v === 'pending' ||
+    v === 'extracting' ||
+    v === 'extracted' ||
+    v === 'matching'
+  ) {
+    return 'Processing';
+  }
+
+  if (v === 'reconciled' || v.startsWith('recon')) return 'Reconciled';
   if (v === 'review_required' || v.startsWith('rev')) return 'Review';
-  if (v.startsWith('app')) return 'Approved';
-  if (v.startsWith('paid') || v.startsWith('recon')) return 'Reconciled' as Status;
+  if (v === 'exception' || v.startsWith('exc')) return 'Exception';
+  if (v === 'approved_for_payment' || v.startsWith('app')) return 'Approved';
+  if (v === 'paid') return 'Paid';
+  if (v === 'rejected') return 'Rejected';
+  if (v === 'failed') return 'Failed';
+
   return 'Review';
 }
 

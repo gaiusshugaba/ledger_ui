@@ -9,7 +9,8 @@ export type Status =
   | 'Review'
   | 'Approved'
   | 'Paid'
-  | 'Reconciled';
+  | 'Reconciled'
+  | 'Processing';
 
 export type QueueInvoice = {
   id: string;
@@ -29,6 +30,7 @@ const statusStyles: Record<Status, string> = {
   Approved: 'bg-[#DEF7EC] text-[#03543F]',
   Paid: 'bg-[#E5E7EB] text-[#374151]',
   Reconciled: 'bg-[#DEF7EC] text-[#03543F]',
+  Processing: 'bg-[#DBEAFE] text-[#1E40AF]',
 };
 
 export function QueueRow({
@@ -41,18 +43,12 @@ export function QueueRow({
   busy?: boolean;
 }) {
   const styles = statusStyles[invoice.status] ?? statusStyles.Review;
-  // Approve is only allowed when the invoice is in the Review tier.
-  // Exceptions must be opened and resolved individually first.
   const canApprove = invoice.status === 'Review';
 
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white p-5 transition-shadow hover:border-neutral-300 hover:shadow-sm">
       <div className="flex items-start justify-between gap-6">
-        {/* ── Left column (clickable → review) ──── */}
-        <Link
-          href={`/queue/${invoice.id}`}
-          className="block min-w-0 flex-1"
-        >
+        <Link href={`/queue/${invoice.id}`} className="block min-w-0 flex-1">
           <span
             className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium ${styles}`}
           >
@@ -83,7 +79,6 @@ export function QueueRow({
           )}
         </Link>
 
-        {/* ── Right column (actions) ────────────── */}
         <div className="flex shrink-0 flex-col items-end gap-3">
           <span className="text-xs text-neutral-400">{invoice.age}</span>
           <span className="text-sm font-semibold text-neutral-900">

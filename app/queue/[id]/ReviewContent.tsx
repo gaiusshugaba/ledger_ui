@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { InvoicePdfViewer } from '@/components/InvoicePdfViewer';
 import { FlaggedReasonCard } from '@/components/FlaggedReasonCard';
 import { VendorMatchCard } from '@/components/VendorMatchCard';
-import { AutomatedChecks } from '@/components/AutomatedChecks';
+import { AutomatedChecks, type CheckItem } from '@/components/AutomatedChecks';
 import { ExtractedFields } from '@/components/ExtractedFields';
 import { LineItemsEditor, type LineItemRow } from '@/components/LineItemsEditor';
 import { AuditTrail } from '@/components/AuditTrail';
@@ -90,6 +90,7 @@ export function ReviewContent() {
   }, [id]);
 
   const ex = data?.extraction ?? null;
+  const match = data?.match ?? null;
 
   const lineItems: LineItemRow[] = useMemo(() => {
     const raw = ex?.line_items;
@@ -103,21 +104,15 @@ export function ReviewContent() {
     }));
   }, [ex]);
 
-  const flaggedReasons = useMemo(
-    () => buildReasons(ex, data?.match),
-    [ex, data?.match],
-  );
-  const checks = useMemo(() => buildChecks(ex), [ex]);
+  const flaggedReasons = useMemo(() => buildReasons(ex, match), [ex, match]);
+  const checks = useMemo(() => buildChecks(ex, match), [ex, match]);
 
   // ── Field edit handler ─────────────────────────────────
   async function handleFieldChange(key: string, newRaw: string) {
     if (!data || !ex) return;
 
     const column = COLUMN_MAP[key];
-    if (!column) {
-      console.warn('[review] unknown field key:', key);
-      return;
-    }
+    if (!column) return;
 
     const numeric = column.numeric;
     const parsed: any = numeric
@@ -336,8 +331,13 @@ export function ReviewContent() {
   const canApprove = data.status !== 'reconciled' && data.status !== 'paid';
   const busy = approving || rejecting;
 
+  // Compute the delta variance from the match record
+  const delta = match?.amount_delta;
+  const deltaPct = match?.amount_delta_pct;
+
   return (
     <div className="flex h-screen bg-[#F5F4F1] text-neutral-900">
+      {/* ── Left: viewer ─────────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -407,28 +407,41 @@ export function ReviewContent() {
         </div>
       </div>
 
+      {/* ── Right: details panel ─────────────────────── */}
       <div className="w-[560px] shrink-0 overflow-y-auto bg-[#F5F4F1] px-6 pt-5 pb-8">
         <div className="space-y-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-neutral-200">
+          {/* WHY THIS IS FLAGGED */}
           <section>
             <SectionLabel>Why this is flagged</SectionLabel>
             <FlaggedReasonCard reasons={flaggedReasons} />
           </section>
 
+          {/* VENDOR MATCH */}
           <section>
             <SectionLabel>Vendor match</SectionLabel>
             <VendorMatchCard
               vendorName={ex?.vendor_name ?? '—'}
               confidence={ex?.vendor_confidence ?? null}
-              lastMatched="Last matched 4 days ago"
-              invoicesThisYear="12 invoices this year"
+              lastMatched={
+                match?.field_scores?.vendor != null
+                  ? `PO vendor score ${(match.field_scores.vendor * 100).toFixed(0)}%`
+                  : '—'
+              }
+              invoicesThisYear={
+                match?.match_method
+                  ? `Match method: ${humanizeMatchMethod(match.match_method)}`
+                  : '—'
+              }
             />
           </section>
 
+          {/* AUTOMATED CHECKS */}
           <section>
             <SectionLabel>Automated checks</SectionLabel>
             <AutomatedChecks checks={checks} />
           </section>
 
+          {/* EXTRACTED FIELDS */}
           <section>
             <SectionLabel>Extracted fields &amp; confidence scores</SectionLabel>
             <ExtractedFields
@@ -491,38 +504,51 @@ export function ReviewContent() {
                 {
                   key: 'delta_variance',
                   label: 'Delta Variance',
-                  value: '+$750.00',
-                  rawValue: '+750.00',
+                  value:
+                    delta != null && deltaPct != null
+                      ? `${delta >= 0 ? '+' : ''}${formatMoney(delta, ex?.currency)} (${(deltaPct * 100).toFixed(2)}%)`
+                      : '—',
+                  rawValue: '',
                   confidence: null,
-                  tone: 'danger',
+                  tone:
+                    delta != null && Math.abs(deltaPct ?? 0) > 0.01
+                      ? 'danger'
+                      : 'default',
                   editable: false,
                 },
               ]}
             />
           </section>
 
+          {/* LINE ITEMS */}
           <section>
             <SectionLabel>Line items</SectionLabel>
             <LineItemsEditor items={lineItems} onSave={handleLineItemsChange} />
           </section>
 
+          {/* AUDIT TRAIL */}
           <section>
             <SectionLabel>Audit trail</SectionLabel>
             <AuditTrail
               events={[
                 {
                   title: 'Reconciliation Session Started',
-                  meta: 'Today 10:14 AM by G. Gana (Lead CPA)',
+                  meta: 'Today by G. Gana (Lead CPA)',
                   tone: 'success',
                 },
                 {
-                  title: 'OCR Extraction Confidence 97.4%',
-                  meta: 'Today 07:42 AM by LedgerEngine Worker #4',
+                  title: match?.match_method
+                    ? `Match engine: ${humanizeMatchMethod(match.match_method)}`
+                    : 'Match engine not run',
+                  meta:
+                    match?.confidence != null
+                      ? `Overall confidence ${match.confidence}`
+                      : '—',
                   tone: 'default',
                 },
                 {
                   title: 'Ingested via AP inbox hook',
-                  meta: 'Today 07:40 AM from invoices@acme.com',
+                  meta: `Source: ${data.file_name ?? 'unknown'}`,
                   tone: 'default',
                 },
               ]}
@@ -540,6 +566,289 @@ export function ReviewContent() {
   );
 }
 
+// ─────────────────────────────────────────────────────
+// Automated checks derived from extraction + match
+// ─────────────────────────────────────────────────────
+function buildChecks(ex: any, match: any): CheckItem[] {
+  const checks: CheckItem[] = [];
+  const method = match?.match_method;
+  const scores = match?.field_scores || {};
+
+  // ── 1. PO reference match ─────────────────────────────
+  if (!ex?.po_number) {
+    checks.push({
+      id: 'po',
+      label: 'No PO reference on invoice',
+      status: 'flagged',
+      detail: 'Invoice does not cite a purchase order',
+    });
+  } else if (method === 'reference_exact') {
+    checks.push({
+      id: 'po',
+      label: `PO ${ex.po_number} matched to authorization`,
+      status: 'passed',
+      detail: 'Exact reference match in PO database',
+    });
+  } else if (method === 'reference_normalized') {
+    checks.push({
+      id: 'po',
+      label: `PO ${ex.po_number} matched after normalization`,
+      status: 'passed',
+      detail: 'Reference found after stripping prefix or leading zeros',
+    });
+  } else if (
+    method === 'vendor_amount_unique' ||
+    method === 'vendor_amount_lineitems'
+  ) {
+    checks.push({
+      id: 'po',
+      label: `PO ${ex.po_number} not matched directly`,
+      status: 'warning',
+      detail: `Matched via vendor + amount fallback (${humanizeMatchMethod(method)})`,
+    });
+  } else if (method === 'multiple_candidates') {
+    checks.push({
+      id: 'po',
+      label: `PO ${ex.po_number} has multiple candidates`,
+      status: 'flagged',
+      detail: `${match?.candidate_po_ids?.length ?? 0} possible POs match vendor + amount`,
+    });
+  } else if (method === 'no_match') {
+    checks.push({
+      id: 'po',
+      label: `PO ${ex.po_number} not found in database`,
+      status: 'flagged',
+      detail: 'Reference does not exist in active authorizations',
+    });
+  } else {
+    checks.push({
+      id: 'po',
+      label: `PO ${ex.po_number} — verification incomplete`,
+      status: 'warning',
+      detail: 'Match engine did not complete for this reference',
+    });
+  }
+
+  // ── 2. Vendor identity vs PO (the fraud check) ────────
+  const extractionConf = ex?.vendor_confidence ?? 0;
+  const poVendorScore = scores.vendor;
+
+  if (method === 'no_match' || poVendorScore == null) {
+    checks.push({
+      id: 'vendor_match',
+      label: 'No PO to compare vendor against',
+      status: 'warning',
+      detail: `${ex?.vendor_name || 'Vendor'} extracted at ${(extractionConf * 100).toFixed(0)}% confidence`,
+    });
+  } else if (poVendorScore >= 0.85 && extractionConf >= 0.85) {
+    checks.push({
+      id: 'vendor_match',
+      label: `${ex?.vendor_name || 'Vendor'} matches authorized vendor on ${ex.po_number}`,
+      status: 'passed',
+      detail: `PO vendor score ${(poVendorScore * 100).toFixed(0)}% · extraction confidence ${(extractionConf * 100).toFixed(0)}%`,
+    });
+  } else if (poVendorScore >= 0.7) {
+    checks.push({
+      id: 'vendor_match',
+      label: `Vendor name partially matches ${ex.po_number}`,
+      status: 'warning',
+      detail: `PO vendor score ${(poVendorScore * 100).toFixed(0)}% — verify legal entity name`,
+    });
+  } else {
+    checks.push({
+      id: 'vendor_match',
+      label: `Vendor name does NOT match authorized vendor on ${ex.po_number}`,
+      status: 'flagged',
+      detail: `Invoice: "${ex?.vendor_name || 'unknown'}" — PO vendor score only ${(poVendorScore * 100).toFixed(0)}%. Potential fraud or wrong PO.`,
+    });
+  }
+
+  // ── 3. Duplicate detection ────────────────────────────
+  if (match?.is_duplicate === true) {
+    checks.push({
+      id: 'duplicate',
+      label: `Duplicate of invoice ${match.duplicate_of || 'unknown'}`,
+      status: 'flagged',
+      detail: 'Same invoice number seen in prior 90 days',
+    });
+  } else {
+    checks.push({
+      id: 'duplicate',
+      label: 'No duplicate detected',
+      status: 'passed',
+      detail: `First occurrence of ${ex?.invoice_number || 'this invoice number'}`,
+    });
+  }
+
+  // ── 4. Line item matching ─────────────────────────────
+  const liScore = scores.line_items ?? 0;
+  const totalItems = Array.isArray(ex?.line_items) ? ex.line_items.length : 0;
+  const matchedItems = (match?.matched_line_items || []).filter(
+    (li: any) => (li.score ?? 0) >= 0.7,
+  ).length;
+
+  if (totalItems === 0) {
+    checks.push({
+      id: 'line_items',
+      label: 'No line items extracted',
+      status: 'warning',
+      detail: 'Invoice has no itemized lines',
+    });
+  } else if (liScore >= 0.9) {
+    checks.push({
+      id: 'line_items',
+      label: `All ${totalItems} line items matched`,
+      status: 'passed',
+      detail: `${matchedItems}/${totalItems} aligned with PO line items`,
+    });
+  } else if (liScore >= 0.5) {
+    checks.push({
+      id: 'line_items',
+      label: `${matchedItems} of ${totalItems} line items matched`,
+      status: 'flagged',
+      detail: `${totalItems - matchedItems} item${totalItems - matchedItems === 1 ? '' : 's'} need manual SKU alignment`,
+    });
+  } else {
+    checks.push({
+      id: 'line_items',
+      label: 'Line items do not match PO',
+      status: 'flagged',
+      detail: `Only ${Math.round(liScore * 100)}% aligned to authorized items`,
+    });
+  }
+
+  // ── 5. Amount reconciliation ──────────────────────────
+  const delta = match?.amount_delta;
+  const deltaPct = match?.amount_delta_pct;
+
+  if (delta == null) {
+    checks.push({
+      id: 'amount',
+      label: 'Amount reconciliation not available',
+      status: 'warning',
+      detail: 'No matching PO to compare against',
+    });
+  } else if (delta === 0) {
+    checks.push({
+      id: 'amount',
+      label: 'Invoice amount matches PO exactly',
+      status: 'passed',
+      detail: `Both ${formatMoney(ex?.amount, ex?.currency)}`,
+    });
+  } else if ((deltaPct ?? 0) < 0.01) {
+    checks.push({
+      id: 'amount',
+      label: 'Amount within rounding tolerance',
+      status: 'passed',
+      detail: `Differs by ${formatMoney(delta, ex?.currency)} (${(deltaPct! * 100).toFixed(3)}%)`,
+    });
+  } else if ((deltaPct ?? 0) < 0.05) {
+    checks.push({
+      id: 'amount',
+      label: `Amount differs by ${formatMoney(delta, ex?.currency)}`,
+      status: 'warning',
+      detail: `${(deltaPct! * 100).toFixed(2)}% variance — within 5% threshold`,
+    });
+  } else {
+    checks.push({
+      id: 'amount',
+      label: `Amount differs by ${formatMoney(delta, ex?.currency)}`,
+      status: 'flagged',
+      detail: `${(deltaPct! * 100).toFixed(2)}% variance exceeds 5% threshold`,
+    });
+  }
+
+  // ── 6. Extraction quality ─────────────────────────────
+  const lowFields: string[] = [];
+  if ((ex?.vendor_confidence ?? 1) < 0.8) lowFields.push('Vendor');
+  if ((ex?.invoice_number_confidence ?? 1) < 0.8) lowFields.push('Invoice #');
+  if ((ex?.invoice_date_confidence ?? 1) < 0.8) lowFields.push('Date');
+  if ((ex?.amount_confidence ?? 1) < 0.8) lowFields.push('Amount');
+  if ((ex?.po_confidence ?? 1) < 0.8) lowFields.push('PO');
+
+  if (lowFields.length === 0) {
+    checks.push({
+      id: 'quality',
+      label: 'All extracted fields above 80% confidence',
+      status: 'passed',
+      detail: 'Extraction quality verified',
+    });
+  } else if (lowFields.length <= 2) {
+    checks.push({
+      id: 'quality',
+      label: `${lowFields.length} field${lowFields.length === 1 ? '' : 's'} below 80% confidence`,
+      status: 'warning',
+      detail: lowFields.join(', '),
+    });
+  } else {
+    checks.push({
+      id: 'quality',
+      label: `${lowFields.length} fields below 80% confidence`,
+      status: 'flagged',
+      detail: lowFields.join(', '),
+    });
+  }
+
+  return checks;
+}
+
+// ─────────────────────────────────────────────────────
+// Reasons — fraud check has priority
+// ─────────────────────────────────────────────────────
+function buildReasons(ex: any, match: any): string[] {
+  const out: string[] = [];
+  const poVendorScore = match?.field_scores?.vendor;
+
+  // PRIORITY 1: Vendor-name / PO mismatch (fraud signal)
+  if (
+    ex?.po_number &&
+    poVendorScore != null &&
+    poVendorScore < 0.7 &&
+    match?.match_method !== 'no_match'
+  ) {
+    out.push(
+      `Vendor name does not match authorized vendor on PO ${ex.po_number}`,
+    );
+  }
+
+  // PRIORITY 2: Duplicate
+  if (match?.is_duplicate === true) {
+    out.push(
+      `Duplicate invoice number — already seen as ${match.duplicate_of || 'unknown'}`,
+    );
+  }
+
+  // PRIORITY 3: Match engine's own reason
+  if (match?.tier_reason && !out.includes(String(match.tier_reason))) {
+    out.push(String(match.tier_reason));
+  }
+
+  // PRIORITY 4: Extraction anomalies
+  if (Array.isArray(ex?.extraction_notes)) {
+    for (const note of ex.extraction_notes) {
+      if (note && !out.includes(String(note))) {
+        out.push(String(note));
+      }
+    }
+  }
+
+  if (out.length === 0) {
+    const conf = match?.confidence ?? 0;
+    if (conf > 0 && conf < 0.5) {
+      out.push(
+        `Low match confidence (${Math.round(conf * 100)}%) — manual review required`,
+      );
+    } else {
+      out.push('Flagged for manual review');
+    }
+  }
+
+  return out;
+}
+
+// ─────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────
 const COLUMN_MAP: Record<
   string,
   { db: string; label: string; numeric: boolean }
@@ -561,40 +870,16 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function buildReasons(ex: any, match: any): string[] {
-  const out: string[] = [];
-  if (match?.tier_reason) out.push(String(match.tier_reason));
-  if ((ex?.amount_confidence ?? 1) < 0.9) {
-    out.push(`Amount differs by $750.00 (0.86%) vs PO-8812`);
-    out.push('Line items matched: 33% (2 of 6 items need manual SKU alignment)');
-  }
-  if (out.length === 0) out.push('Flagged for manual review');
-  return out;
-}
-
-function buildChecks(ex: any) {
-  return [
-    {
-      label: 'PO number matches active authorization',
-      status: (ex?.po_confidence ?? 1) >= 0.9 ? 'passed' : 'flagged',
-    },
-    {
-      label: 'Vendor entity verified against master record',
-      status: (ex?.vendor_confidence ?? 1) >= 0.9 ? 'passed' : 'flagged',
-    },
-    {
-      label: 'No duplicate invoice detected in prior 30 days',
-      status: 'passed',
-    },
-    {
-      label: '5 of 6 line items matched 90%',
-      status: 'flagged',
-    },
-    {
-      label: 'Amount differs by $750.00 (0.86%) — needs verification',
-      status: (ex?.amount_confidence ?? 1) >= 0.9 ? 'passed' : 'flagged',
-    },
-  ] as const;
+function humanizeMatchMethod(m: string): string {
+  const map: Record<string, string> = {
+    reference_exact: 'Exact PO reference',
+    reference_normalized: 'Normalized PO reference',
+    vendor_amount_lineitems: 'Vendor + amount + line items',
+    vendor_amount_unique: 'Vendor + amount (unique)',
+    multiple_candidates: 'Multiple candidate POs',
+    no_match: 'No match found',
+  };
+  return map[m] ?? m.replace(/_/g, ' ');
 }
 
 function deriveLineStatus(li: any): 'warning' | 'error' | null {

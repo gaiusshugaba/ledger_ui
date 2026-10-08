@@ -2,13 +2,20 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { CloudUpload, Folder } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { CloudUpload, Folder, CheckCircle2, AlertCircle } from 'lucide-react';
+
+const INTAKE_ENDPOINT = '/api/intake';
+
+type UploadResult = {
+  fileName: string;
+  ok: boolean;
+  error?: string;
+};
 
 export function UploadDropzone({ onUploaded }: { onUploaded?: () => void }) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [results, setResults] = useState<UploadResult[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFiles(files: FileList | File[]) {
@@ -16,56 +23,48 @@ export function UploadDropzone({ onUploaded }: { onUploaded?: () => void }) {
     if (list.length === 0) return;
 
     setBusy(true);
-    setStatusMsg(null);
+    setResults([]);
 
-    const supabase = createClient();
-    let ok = 0;
-    let failed = 0;
+    const out: UploadResult[] = [];
 
     for (const file of list) {
       try {
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const path = `${Date.now()}-${safeName}`;
+        // Post through our Next.js API route — it forwards to n8n server-side,
+        // avoiding browser CORS restrictions.
+        const form = new FormData();
+        form.append('file', file, file.name);
 
-        const { error: upErr } = await supabase.storage
-          .from('invoices')
-          .upload(path, file, { upsert: false });
-
-        if (upErr) throw upErr;
-
-        const { data: urlData } = supabase.storage
-          .from('invoices')
-          .getPublicUrl(path);
-
-        const { error: insErr } = await supabase.from('invoices').insert({
-          file_name: file.name,
-          file_url: urlData.publicUrl,
-          storage_path: path,
-          mime_type: file.type || 'application/octet-stream',
-          file_size_bytes: file.size,
-          source: 'upload',
-          status: 'review_required',
+        const res = await fetch(INTAKE_ENDPOINT, {
+          method: 'POST',
+          body: form,
         });
 
-        if (insErr) throw insErr;
-        ok++;
-      } catch (err) {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(
+            body?.error ||
+              `Intake failed: ${res.status} ${res.statusText}`,
+          );
+        }
+
+        out.push({ fileName: file.name, ok: true });
+      } catch (err: any) {
         console.error('[upload] file failed:', file.name, err);
-        failed++;
+        out.push({
+          fileName: file.name,
+          ok: false,
+          error: err?.message || 'Upload failed',
+        });
       }
     }
 
+    setResults(out);
     setBusy(false);
-    if (failed === 0) {
-      setStatusMsg(`Uploaded ${ok} file${ok === 1 ? '' : 's'}`);
-    } else {
-      setStatusMsg(`Uploaded ${ok}, failed ${failed}`);
-    }
     onUploaded?.();
   }
 
   return (
-    <div className="flex flex-col rounded-2xl border border-neutral-200 bg-white p-4">
+    <div className="rounded-2xl border border-neutral-200 bg-white p-4">
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -78,7 +77,7 @@ export function UploadDropzone({ onUploaded }: { onUploaded?: () => void }) {
           if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files);
         }}
         onClick={() => inputRef.current?.click()}
-        className={`flex flex-1 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
+        className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
           dragging
             ? 'border-neutral-400 bg-neutral-100'
             : 'border-neutral-200 bg-[#FAFAFA]'
@@ -125,8 +124,31 @@ export function UploadDropzone({ onUploaded }: { onUploaded?: () => void }) {
         />
       </div>
 
-      {statusMsg && (
-        <p className="mt-3 text-center text-xs text-neutral-500">{statusMsg}</p>
+      {results.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {results.map((r, i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+                r.ok
+                  ? 'bg-[#DEF7EC] text-[#03543F]'
+                  : 'bg-[#FDE8E8] text-[#9B1C1C]'
+              }`}
+            >
+              {r.ok ? (
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <span className="truncate font-medium">{r.fileName}</span>
+              {!r.ok && (
+                <span className="ml-auto shrink-0 truncate text-[11px] opacity-80">
+                  {r.error}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
