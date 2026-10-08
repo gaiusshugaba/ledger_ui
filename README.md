@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ledger
 
-## Getting Started
+AP invoice reconciliation dashboard. Ingests invoices from email and upload, extracts structured fields with vision models, matches against POs and vendor records, and routes exceptions to humans with the reason, source document, and confidence scores all visible on one screen.
 
-First, run the development server:
+## Screens
+
+- **Dashboard** — KPIs, recent activity, inline "why this is flagged" reasoning
+- **Upload** — drag-and-drop + email forwarding channel
+- **Review queue** — everything that needs a human, sorted by severity
+- **Invoice detail** — PDF viewer on the left, extraction and checks on the right
+- **Reconciled** — straight-through matches with match rate and confidence
+- **Errors** — unresolved pipeline failures
+- **Rules** — thresholds for auto-reconcile vs review, amount tolerance, severity bands
+- **Vendors** — vendor master with aliases and per-vendor history
+- **Notifications** — Slack routing per tier, daily summary scheduling
+- **Audit log** — every action, with before/after diff for config changes
+- **Team** — members, roles, seat usage
+
+## Stack
+
+- Next.js 16 (App Router, Turbopack)
+- TypeScript
+- Tailwind CSS
+- Supabase (Postgres, Storage, RLS)
+
+## Design principles
+
+- **Review reasons are first-class.** Every flagged invoice shows *why* next to the *what*.
+- **Confidence is visible, not hidden.** Per-field scores sit beside extracted values.
+- **Source stays in view.** The PDF doesn't disappear when you inspect the extraction.
+- **Undo is cheap, mistakes are loud.** Optimistic UI with toast confirmation and audit trail.
+
+## Local setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+git clone https://github.com/gaiusshugaba/ledger_ui.git
+cd ledger_ui
+npm install
