@@ -16,6 +16,7 @@ import { Sidebar } from '@/components/Sidebar';
 import { KpiCard } from '@/components/KpiCard';
 import { ActivityRow, type ActivityInvoice } from '@/components/ActivityRow';
 import { createClient } from '@/lib/supabase/client';
+import { buildReasons } from '@/lib/buildReasons';
 import type { Status } from '@/components/QueueRow';
 
 type Tab = 'All' | 'Reconciled' | 'Flagged';
@@ -43,20 +44,30 @@ export function DashboardContent() {
     const supabase = createClient();
 
     (async () => {
-  const { data, error } = await supabase
-    .from('invoices')
-    .select(`
-      id,
-      status,
-      created_at,
-      uploaded_at,
-      processed_at,
-      extraction:extractions(vendor_name, invoice_number, amount, currency, line_items),
-      match:matches(tier_reason)
-    `)
-    .order('created_at', { ascending: false })
-    .limit(200);
-    
+      const { data, error } = await supabase
+        .from('invoices')
+        .select(`
+          id,
+          status,
+          created_at,
+          uploaded_at,
+          processed_at,
+          extraction:extractions(
+            vendor_name,
+            invoice_number,
+            amount,
+            currency,
+            line_items,
+            po_number,
+            extraction_notes,
+            vendor_confidence,
+            amount_confidence
+          ),
+          match:matches(*)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(200);
+
       if (cancelled) return;
 
       if (error) {
@@ -67,7 +78,19 @@ export function DashboardContent() {
       }
 
       console.log('[dashboard] rows:', data?.length ?? 0);
-      console.log('[dashboard] first row:', JSON.stringify(data?.[0], null, 2));
+
+      const first = (data ?? [])[0] as any;
+      if (first) {
+        const m = Array.isArray(first.match) ? first.match[0] : first.match;
+        console.log('[dashboard] first match:', {
+          has_match: !!m,
+          tier_reason: m?.tier_reason,
+          match_method: m?.match_method,
+          field_scores: m?.field_scores,
+          vendor_score: m?.field_scores?.vendor,
+          is_duplicate: m?.is_duplicate,
+        });
+      }
 
       setRaw((data ?? []) as RawInvoice[]);
       setLoading(false);
@@ -132,8 +155,7 @@ export function DashboardContent() {
       const ex = Array.isArray(r.extraction) ? r.extraction[0] : r.extraction;
       const match = Array.isArray(r.match) ? r.match[0] : r.match;
 
-      const reasons: string[] = [];
-      if (match?.tier_reason) reasons.push(String(match.tier_reason));
+      const reasons = buildReasons(ex, match);
 
       const createdIso = r.created_at ?? r.uploaded_at;
       const due = createdIso
