@@ -14,6 +14,7 @@ import { ExtractedFields } from '@/components/ExtractedFields';
 import { LineItemsEditor, type LineItemRow } from '@/components/LineItemsEditor';
 import { AuditTrail } from '@/components/AuditTrail';
 import { useCounts } from '@/lib/CountsContext';
+import { buildReasons } from '@/lib/buildReasons';
 
 const CURRENT_ACTOR = 'G. Gana';
 
@@ -331,7 +332,6 @@ export function ReviewContent() {
   const canApprove = data.status !== 'reconciled' && data.status !== 'paid';
   const busy = approving || rejecting;
 
-  // Compute the delta variance from the match record
   const delta = match?.amount_delta;
   const deltaPct = match?.amount_delta_pct;
 
@@ -567,7 +567,7 @@ export function ReviewContent() {
 }
 
 // ─────────────────────────────────────────────────────
-// Automated checks derived from extraction + match
+// Automated checks — every row derives from real data
 // ─────────────────────────────────────────────────────
 function buildChecks(ex: any, match: any): CheckItem[] {
   const checks: CheckItem[] = [];
@@ -629,7 +629,7 @@ function buildChecks(ex: any, match: any): CheckItem[] {
     });
   }
 
-  // ── 2. Vendor identity vs PO (the fraud check) ────────
+  // ── 2. Vendor identity vs PO (fraud check) ────────────
   const extractionConf = ex?.vendor_confidence ?? 0;
   const poVendorScore = scores.vendor;
 
@@ -790,60 +790,6 @@ function buildChecks(ex: any, match: any): CheckItem[] {
   }
 
   return checks;
-}
-
-// ─────────────────────────────────────────────────────
-// Reasons — fraud check has priority
-// ─────────────────────────────────────────────────────
-function buildReasons(ex: any, match: any): string[] {
-  const out: string[] = [];
-  const poVendorScore = match?.field_scores?.vendor;
-
-  // PRIORITY 1: Vendor-name / PO mismatch (fraud signal)
-  if (
-    ex?.po_number &&
-    poVendorScore != null &&
-    poVendorScore < 0.7 &&
-    match?.match_method !== 'no_match'
-  ) {
-    out.push(
-      `Vendor name does not match authorized vendor on PO ${ex.po_number}`,
-    );
-  }
-
-  // PRIORITY 2: Duplicate
-  if (match?.is_duplicate === true) {
-    out.push(
-      `Duplicate invoice number — already seen as ${match.duplicate_of || 'unknown'}`,
-    );
-  }
-
-  // PRIORITY 3: Match engine's own reason
-  if (match?.tier_reason && !out.includes(String(match.tier_reason))) {
-    out.push(String(match.tier_reason));
-  }
-
-  // PRIORITY 4: Extraction anomalies
-  if (Array.isArray(ex?.extraction_notes)) {
-    for (const note of ex.extraction_notes) {
-      if (note && !out.includes(String(note))) {
-        out.push(String(note));
-      }
-    }
-  }
-
-  if (out.length === 0) {
-    const conf = match?.confidence ?? 0;
-    if (conf > 0 && conf < 0.5) {
-      out.push(
-        `Low match confidence (${Math.round(conf * 100)}%) — manual review required`,
-      );
-    } else {
-      out.push('Flagged for manual review');
-    }
-  }
-
-  return out;
 }
 
 // ─────────────────────────────────────────────────────

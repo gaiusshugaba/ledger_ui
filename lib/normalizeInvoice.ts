@@ -1,11 +1,14 @@
 // lib/normalizeInvoice.ts
 import type { QueueInvoice, Status } from '@/components/QueueRow';
+import { buildReasons } from './buildReasons';
 
 export function normalizeInvoice(raw: Record<string, any>): QueueInvoice {
   const pick = (v: any) => (Array.isArray(v) ? v[0] : v);
 
   const ex = pick(raw.extraction ?? raw.extractions) ?? {};
   const match = pick(raw.match ?? raw.matches) ?? {};
+
+  const reasons = buildReasons(ex, match);
 
   return {
     id: String(raw.id),
@@ -16,7 +19,7 @@ export function normalizeInvoice(raw: Record<string, any>): QueueInvoice {
     itemCount: Array.isArray(ex.line_items) ? ex.line_items.length : 0,
     age: timeAgo(raw.created_at ?? raw.uploaded_at),
     source: capitalize(raw.source ?? 'email') as 'Email' | 'Upload',
-    reason: match.tier_reason || undefined,
+    reason: reasons.length > 0 ? reasons.join(' · ') : undefined,
   };
 }
 
@@ -25,7 +28,7 @@ function normalizeStatus(s: string | null | undefined): Status {
   if (v.startsWith('exc')) return 'Exception';
   if (v === 'review_required' || v.startsWith('rev')) return 'Review';
   if (v.startsWith('app')) return 'Approved';
-  if (v.startsWith('paid') || v.startsWith('recon')) return 'Paid';
+  if (v.startsWith('paid') || v.startsWith('recon')) return 'Reconciled';
   return 'Review';
 }
 
