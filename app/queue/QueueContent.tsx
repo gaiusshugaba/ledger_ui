@@ -10,12 +10,16 @@ import { createClient } from '@/lib/supabase/client';
 
 type Tab = 'All' | 'Review' | 'Exceptions';
 
+const CURRENT_ACTOR = 'G. Gana';
+
 export function QueueContent() {
   const [tab, setTab] = useState<Tab>('All');
   const [query, setQuery] = useState('');
   const [invoices, setInvoices] = useState<QueueInvoice[]>([]);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,9 +46,6 @@ export function QueueContent() {
         return;
       }
 
-      console.log('[queue] row count:', data?.length ?? 0);
-      console.log('[queue] first joined row:', JSON.stringify(data?.[0], null, 2));
-
       setInvoices((data ?? []).map(normalizeInvoice));
       setLoading(false);
     })();
@@ -54,6 +55,93 @@ export function QueueContent() {
     };
   }, []);
 
+  // ── Approve / Reject ───────────────────────────────────
+  async function handleApprove(id: string) {
+    const current = invoices.find((i) => i.id === id);
+    if (!current) return;
+
+    setBusyIds((s) => new Set(s).add(id));
+    // Optimistic — remove from queue immediately
+    setInvoices((prev) => prev.filter((i) => i.id !== id));
+
+    const supabase = createClient();
+    const now = new Date().toISOString();
+
+    const { error: updErr } = await supabase
+      .from('invoices')
+      .update({ status: 'reconciled', processed_at: now, updated_at: now })
+      .eq('id', id);
+
+    if (updErr) {
+      console.error('[queue] approve failed:', updErr);
+      // Roll back
+      setInvoices((prev) => [current, ...prev]);
+      setToast('Failed to approve — check console');
+    } else {
+      await supabase.from('audit_log').insert({
+        actor: CURRENT_ACTOR,
+        action: 'invoice_reconciled',
+        entity_type: 'invoice',
+        entity_id: current.invoiceNumber,
+        reason: 'Approved from review queue',
+        metadata: { invoice_id: id, amount: current.amount, vendor: current.company },
+      });
+      setToast(`Approved ${current.invoiceNumber}`);
+    }
+
+    setBusyIds((s) => {
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  async function handleReject(id: string) {
+    const current = invoices.find((i) => i.id === id);
+    if (!current) return;
+
+    setBusyIds((s) => new Set(s).add(id));
+    setInvoices((prev) => prev.filter((i) => i.id !== id));
+
+    const supabase = createClient();
+    const now = new Date().toISOString();
+
+    const { error: updErr } = await supabase
+      .from('invoices')
+      .update({ status: 'exception', updated_at: now })
+      .eq('id', id);
+
+    if (updErr) {
+      console.error('[queue] reject failed:', updErr);
+      setInvoices((prev) => [current, ...prev]);
+      setToast('Failed to reject — check console');
+    } else {
+      await supabase.from('audit_log').insert({
+        actor: CURRENT_ACTOR,
+        action: 'invoice_rejected',
+        entity_type: 'invoice',
+        entity_id: current.invoiceNumber,
+        reason: 'Manually rejected from queue',
+        metadata: { invoice_id: id, vendor: current.company },
+      });
+      setToast(`Rejected ${current.invoiceNumber}`);
+    }
+
+    setBusyIds((s) => {
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // ── Filtering ──────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return invoices.filter((inv) => {
@@ -87,7 +175,9 @@ export function QueueContent() {
         />
         <div className="space-y-3 px-8 py-6">
           {loading ? (
-            <p className="py-16 text-center text-sm text-neutral-400">Loading…</p>
+            <p className="py-16 text-center text-sm text-neutral-400">
+              Loading…
+            </p>
           ) : errorMsg ? (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
               <strong>Failed to load:</strong> {errorMsg}
@@ -98,10 +188,22 @@ export function QueueContent() {
             </p>
           ) : (
             filtered.map((invoice) => (
-              <QueueRow key={invoice.id} invoice={invoice} />
+              <QueueRow
+                key={invoice.id}
+                invoice={invoice}
+                busy={busyIds.has(invoice.id)}
+                onApprove={handleApprove}
+                onReject={handleReject}
+              />
             ))
           )}
         </div>
+
+        {toast && (
+          <div className="fixed bottom-6 right-6 z-50 rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white shadow-lg">
+            {toast}
+          </div>
+        )}
       </main>
     </div>
   );
