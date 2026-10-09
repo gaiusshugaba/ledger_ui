@@ -1,7 +1,15 @@
 // components/ActivityRow.tsx
 'use client';
 
-import { Check, X, ChevronUp, ChevronDown, Calendar, CornerDownRight } from 'lucide-react';
+import Link from 'next/link';
+import {
+  Check,
+  X,
+  ChevronUp,
+  ChevronDown,
+  Calendar,
+  CornerDownRight,
+} from 'lucide-react';
 import type { Status } from './QueueRow';
 
 export type ActivityInvoice = {
@@ -19,7 +27,11 @@ const statusStyles: Record<Status, string> = {
   Exception: 'bg-[#FDE8E8] text-[#9B1C1C]',
   Review: 'bg-[#FEF3C7] text-[#92400E]',
   Reconciled: 'bg-[#DEF7EC] text-[#03543F]',
+  Approved: 'bg-[#DEF7EC] text-[#03543F]',
   Paid: 'bg-[#E5E7EB] text-[#374151]',
+  Processing: 'bg-[#DBEAFE] text-[#1E40AF]',
+  Failed: 'bg-[#FDE8E8] text-[#9B1C1C]',
+  Rejected: 'bg-[#E5E7EB] text-[#374151]',
 };
 
 export function ActivityRow({
@@ -31,22 +43,24 @@ export function ActivityRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const isFlagged = invoice.status === 'Exception' || invoice.status === 'Review';
+  const isFlagged =
+    invoice.status === 'Exception' || invoice.status === 'Review';
   const canExpand = isFlagged && invoice.reasons.length > 0;
+  const reviewHref = `/queue/${invoice.id}`;
 
   return (
     <div className="border-b border-neutral-100 last:border-b-0">
       <div className="grid grid-cols-[44px_1fr_140px_160px_140px_120px_180px] items-center gap-4 px-5 py-4">
         <StatusDot status={invoice.status} />
 
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-neutral-900">
+        <Link href={reviewHref} className="block min-w-0">
+          <p className="truncate text-sm font-medium text-neutral-900 hover:underline">
             {invoice.vendor}
           </p>
           <p className="truncate font-mono text-xs text-neutral-500">
             {invoice.invoiceNumber}
           </p>
-        </div>
+        </Link>
 
         <p className="text-right text-sm font-medium text-neutral-900">
           {invoice.amount}
@@ -68,12 +82,12 @@ export function ActivityRow({
         <p className="text-xs text-neutral-500">{invoice.age}</p>
 
         <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
+          <Link
+            href={reviewHref}
             className="rounded-full border border-neutral-200 bg-white px-4 py-1.5 text-xs font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50"
           >
             {actionLabel(invoice.status)}
-          </button>
+          </Link>
           {canExpand && (
             <button
               type="button"
@@ -103,10 +117,15 @@ export function ActivityRow({
           </div>
           <ul className="mt-2 space-y-1.5">
             {invoice.reasons.map((r, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs text-neutral-700">
+              <li
+                key={i}
+                className="flex items-start gap-2 text-xs text-neutral-700"
+              >
                 <span
                   className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                    invoice.status === 'Exception' ? 'bg-[#D14343]' : 'bg-[#D9A441]'
+                    invoice.status === 'Exception'
+                      ? 'bg-[#D14343]'
+                      : 'bg-[#D9A441]'
                   }`}
                 />
                 <span>{r}</span>
@@ -120,20 +139,21 @@ export function ActivityRow({
 }
 
 function actionLabel(status: Status): string {
-  if (status === 'Reconciled') return 'View';
+  if (status === 'Reconciled' || status === 'Paid' || status === 'Approved')
+    return 'View';
   if (status === 'Exception') return 'Resolve';
   return 'Review';
 }
 
 function StatusDot({ status }: { status: Status }) {
-  if (status === 'Reconciled') {
+  if (status === 'Reconciled' || status === 'Approved') {
     return (
       <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#DEF7EC]">
         <Check className="h-3.5 w-3.5 text-[#03543F]" strokeWidth={3} />
       </div>
     );
   }
-  if (status === 'Exception') {
+  if (status === 'Exception' || status === 'Failed') {
     return (
       <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FDE8E8]">
         <X className="h-3.5 w-3.5 text-[#9B1C1C]" strokeWidth={3} />
