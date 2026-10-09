@@ -1,13 +1,14 @@
 // app/notifications/NotificationsContent.tsx
 'use client';
 
-import { useState } from 'react';
-import { Info, ChevronDown } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Info, ChevronDown, Loader2 } from 'lucide-react';
 import { Sidebar } from '@/components/Sidebar';
 import { ToggleSwitch } from '@/components/ToggleSwitch';
 import { ChannelDropdown } from '@/components/ChannelDropdown';
 import { TierRoutingRow } from '@/components/TierRoutingRow';
 import { SlackChannelRow } from '@/components/SlackChannelRow';
+import { createClient } from '@/lib/supabase/client';
 
 const CHANNEL_OPTIONS = [
   'ledger-notifications',
@@ -24,63 +25,176 @@ const TIMEZONE_OPTIONS = [
   'Asia/Singapore (SGT / UTC+8)',
 ];
 
+const DEFAULTS = {
+  tierRouting: {
+    reconciled: { channel: 'ledger-notifications', enabled: false },
+    review: { channel: 'ledger-notifications', enabled: true },
+    exception: { channel: 'ledger-notifications', enabled: true },
+  },
+  slackChannels: {
+    notifications: 'ledger-notifications',
+    errors: 'ledger-ops',
+  },
+  dailySummary: {
+    enabled: true,
+    deliveryTime: '09:00',
+    timezone: TIMEZONE_OPTIONS[0],
+  },
+};
+
 export function NotificationsContent() {
-  // Tier routing
-  const [reconciledChannel, setReconciledChannel] = useState('ledger-notifications');
-  const [reconciledEnabled, setReconciledEnabled] = useState(false);
+  const [reconciledChannel, setReconciledChannel] = useState(
+    DEFAULTS.tierRouting.reconciled.channel,
+  );
+  const [reconciledEnabled, setReconciledEnabled] = useState(
+    DEFAULTS.tierRouting.reconciled.enabled,
+  );
 
-  const [reviewChannel, setReviewChannel] = useState('ledger-notifications');
-  const [reviewEnabled, setReviewEnabled] = useState(true);
+  const [reviewChannel, setReviewChannel] = useState(
+    DEFAULTS.tierRouting.review.channel,
+  );
+  const [reviewEnabled, setReviewEnabled] = useState(
+    DEFAULTS.tierRouting.review.enabled,
+  );
 
-  const [exceptionChannel, setExceptionChannel] = useState('ledger-notifications');
-  const [exceptionEnabled, setExceptionEnabled] = useState(true);
+  const [exceptionChannel, setExceptionChannel] = useState(
+    DEFAULTS.tierRouting.exception.channel,
+  );
+  const [exceptionEnabled, setExceptionEnabled] = useState(
+    DEFAULTS.tierRouting.exception.enabled,
+  );
 
-  // Slack channels
-  const [notificationsChannel, setNotificationsChannel] = useState('ledger-notifications');
-  const [errorsChannel, setErrorsChannel] = useState('ledger-ops');
+  const [notificationsChannel, setNotificationsChannel] = useState(
+    DEFAULTS.slackChannels.notifications,
+  );
+  const [errorsChannel, setErrorsChannel] = useState(
+    DEFAULTS.slackChannels.errors,
+  );
 
-  // Daily summary
-  const [dailySummaryEnabled, setDailySummaryEnabled] = useState(true);
-  const [deliveryTime, setDeliveryTime] = useState('09:00');
-  const [timezone, setTimezone] = useState(TIMEZONE_OPTIONS[0]);
+  const [dailySummaryEnabled, setDailySummaryEnabled] = useState(
+    DEFAULTS.dailySummary.enabled,
+  );
+  const [deliveryTime, setDeliveryTime] = useState(
+    DEFAULTS.dailySummary.deliveryTime,
+  );
+  const [timezone, setTimezone] = useState(DEFAULTS.dailySummary.timezone);
 
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  function handleSave() {
-    const payload = {
-      reconciled: { channel: reconciledChannel, enabled: reconciledEnabled },
-      review: { channel: reviewChannel, enabled: reviewEnabled },
-      exception: { channel: exceptionChannel, enabled: exceptionEnabled },
-      notificationsChannel,
-      errorsChannel,
-      dailySummaryEnabled,
-      deliveryTime,
-      timezone,
+  // ── Load settings on mount ─────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClient();
+
+    (async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('key, value');
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error('[notifications] load failed:', error);
+        setErrorMsg('Failed to load settings');
+        setLoading(false);
+        return;
+      }
+
+      const map: Record<string, any> = {};
+      for (const row of data ?? []) map[row.key] = row.value;
+
+      const tier = map['notifications.tier_routing'] ?? DEFAULTS.tierRouting;
+      setReconciledChannel(tier.reconciled?.channel ?? DEFAULTS.tierRouting.reconciled.channel);
+      setReconciledEnabled(tier.reconciled?.enabled ?? DEFAULTS.tierRouting.reconciled.enabled);
+      setReviewChannel(tier.review?.channel ?? DEFAULTS.tierRouting.review.channel);
+      setReviewEnabled(tier.review?.enabled ?? DEFAULTS.tierRouting.review.enabled);
+      setExceptionChannel(tier.exception?.channel ?? DEFAULTS.tierRouting.exception.channel);
+      setExceptionEnabled(tier.exception?.enabled ?? DEFAULTS.tierRouting.exception.enabled);
+
+      const slack = map['notifications.slack_channels'] ?? DEFAULTS.slackChannels;
+      setNotificationsChannel(slack.notifications ?? DEFAULTS.slackChannels.notifications);
+      setErrorsChannel(slack.errors ?? DEFAULTS.slackChannels.errors);
+
+      const daily = map['notifications.daily_summary'] ?? DEFAULTS.dailySummary;
+      setDailySummaryEnabled(daily.enabled ?? DEFAULTS.dailySummary.enabled);
+      setDeliveryTime(daily.deliveryTime ?? DEFAULTS.dailySummary.deliveryTime);
+      setTimezone(daily.timezone ?? DEFAULTS.dailySummary.timezone);
+
+      setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
     };
-    console.log('[notifications] save', payload);
+  }, []);
+
+  // ── Save ───────────────────────────────────────────────
+  async function saveChanges() {
+    setSaving(true);
+    setErrorMsg(null);
+
+    const supabase = createClient();
+    const now = new Date().toISOString();
+
+    const { error } = await supabase.from('settings').upsert([
+      {
+        key: 'notifications.tier_routing',
+        value: {
+          reconciled: { channel: reconciledChannel, enabled: reconciledEnabled },
+          review: { channel: reviewChannel, enabled: reviewEnabled },
+          exception: { channel: exceptionChannel, enabled: exceptionEnabled },
+        },
+        updated_at: now,
+      },
+      {
+        key: 'notifications.slack_channels',
+        value: {
+          notifications: notificationsChannel,
+          errors: errorsChannel,
+        },
+        updated_at: now,
+      },
+      {
+        key: 'notifications.daily_summary',
+        value: {
+          enabled: dailySummaryEnabled,
+          deliveryTime,
+          timezone,
+        },
+        updated_at: now,
+      },
+    ]);
+
+    if (error) {
+      console.error('[notifications] save failed:', error);
+      setErrorMsg(error.message || 'Save failed');
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
     setSavedAt(Date.now());
+    setTimeout(() => setSavedAt(null), 2500);
   }
 
-  function handleCancel() {
-    setReconciledChannel('ledger-notifications');
-    setReconciledEnabled(false);
-    setReviewChannel('ledger-notifications');
-    setReviewEnabled(true);
-    setExceptionChannel('ledger-notifications');
-    setExceptionEnabled(true);
-    setNotificationsChannel('ledger-notifications');
-    setErrorsChannel('ledger-ops');
-    setDailySummaryEnabled(true);
-    setDeliveryTime('09:00');
-    setTimezone(TIMEZONE_OPTIONS[0]);
-    setSavedAt(null);
+  if (loading) {
+    return (
+      <div className="flex h-screen bg-[#FCFCFA]">
+        <Sidebar />
+        <main className="flex flex-1 items-center justify-center text-sm text-neutral-400">
+          Loading notifications…
+        </main>
+      </div>
+    );
   }
 
   return (
     <div className="flex h-screen bg-[#FCFCFA] text-neutral-900">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        {/* Header */}
         <div className="border-b border-neutral-200 px-8 pt-6 pb-5">
           <div className="flex items-start justify-between gap-6">
             <div>
@@ -93,29 +207,32 @@ export function NotificationsContent() {
             </div>
 
             <div className="flex items-center gap-3">
-              {savedAt && (
+              {savedAt && !saving && (
                 <span className="text-xs text-emerald-600">Saved</span>
               )}
               <button
                 type="button"
-                onClick={handleCancel}
-                className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm transition-colors hover:bg-neutral-50"
+                onClick={saveChanges}
+                disabled={saving}
+                className="inline-flex items-center rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-neutral-800 disabled:opacity-60"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                className="inline-flex items-center rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-neutral-800"
-              >
-                Save changes
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {saving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
           </div>
         </div>
 
         <div className="space-y-6 px-8 py-6">
-          {/* ── Card 1: Tier routing ─────────────────── */}
+          {errorMsg && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <strong>Error:</strong> {errorMsg}
+            </div>
+          )}
+
+          {/* Card 1: Tier routing */}
           <section className="rounded-2xl border border-neutral-200 bg-white p-6">
             <header className="mb-6">
               <h2 className="text-base font-semibold text-neutral-900">
@@ -165,7 +282,7 @@ export function NotificationsContent() {
             </div>
           </section>
 
-          {/* ── Card 2: Slack channels ───────────────── */}
+          {/* Card 2: Slack channels */}
           <section className="rounded-2xl border border-neutral-200 bg-white p-6">
             <header className="mb-6 flex items-start justify-between gap-4">
               <div>
@@ -206,7 +323,7 @@ export function NotificationsContent() {
             </div>
           </section>
 
-          {/* ── Card 3: Daily summary ─────────────────── */}
+          {/* Card 3: Daily summary */}
           <section className="rounded-2xl border border-neutral-200 bg-white p-6">
             <header className="mb-6">
               <h2 className="text-base font-semibold text-neutral-900">
@@ -218,7 +335,6 @@ export function NotificationsContent() {
             </header>
 
             <div className="space-y-6">
-              {/* Row 1: toggle */}
               <div className="flex items-start justify-between gap-6">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-neutral-900">
@@ -235,7 +351,6 @@ export function NotificationsContent() {
                 />
               </div>
 
-              {/* Row 2: time + timezone */}
               <div className="flex items-start justify-between gap-6">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-neutral-900">
@@ -273,7 +388,6 @@ export function NotificationsContent() {
                 </div>
               </div>
 
-              {/* Footer note */}
               <div className="flex items-start gap-2 rounded-xl bg-neutral-50 px-4 py-3 text-xs text-neutral-500">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
                 <span>
@@ -307,6 +421,5 @@ function formatTime12h(hhmm: string): string {
 function timezoneAbbrev(tz: string): string {
   const match = tz.match(/\(([^)]+)\)/);
   if (!match) return '';
-  const abbr = match[1].split('/')[0].trim();
-  return abbr;
+  return match[1].split('/')[0].trim();
 }
