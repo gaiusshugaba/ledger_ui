@@ -10,7 +10,9 @@ export type Status =
   | 'Approved'
   | 'Paid'
   | 'Reconciled'
-  | 'Processing';
+  | 'Processing'
+  | 'Failed'
+  | 'Rejected';
 
 export type QueueInvoice = {
   id: string;
@@ -31,6 +33,8 @@ const statusStyles: Record<Status, string> = {
   Paid: 'bg-[#E5E7EB] text-[#374151]',
   Reconciled: 'bg-[#DEF7EC] text-[#03543F]',
   Processing: 'bg-[#DBEAFE] text-[#1E40AF]',
+  Failed: 'bg-[#FDE8E8] text-[#9B1C1C]',
+  Rejected: 'bg-[#E5E7EB] text-[#374151]',
 };
 
 export function QueueRow({

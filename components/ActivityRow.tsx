@@ -44,7 +44,9 @@ export function ActivityRow({
   onToggle: () => void;
 }) {
   const isFlagged =
-    invoice.status === 'Exception' || invoice.status === 'Review';
+    invoice.status === 'Exception' ||
+    invoice.status === 'Review' ||
+    invoice.status === 'Failed';
   const canExpand = isFlagged && invoice.reasons.length > 0;
   const reviewHref = `/queue/${invoice.id}`;
 
@@ -108,7 +110,9 @@ export function ActivityRow({
       {expanded && canExpand && (
         <div
           className={`px-5 py-4 pl-[68px] ${
-            invoice.status === 'Exception' ? 'bg-[#FDF2F2]' : 'bg-[#FBF6EA]'
+            invoice.status === 'Exception' || invoice.status === 'Failed'
+              ? 'bg-[#FDF2F2]'
+              : 'bg-[#FBF6EA]'
           }`}
         >
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide">
@@ -123,7 +127,7 @@ export function ActivityRow({
               >
                 <span
                   className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                    invoice.status === 'Exception'
+                    invoice.status === 'Exception' || invoice.status === 'Failed'
                       ? 'bg-[#D14343]'
                       : 'bg-[#D9A441]'
                   }`}
@@ -139,9 +143,14 @@ export function ActivityRow({
 }
 
 function actionLabel(status: Status): string {
-  if (status === 'Reconciled' || status === 'Paid' || status === 'Approved')
+  if (
+    status === 'Reconciled' ||
+    status === 'Paid' ||
+    status === 'Approved' ||
+    status === 'Rejected'
+  )
     return 'View';
-  if (status === 'Exception') return 'Resolve';
+  if (status === 'Exception' || status === 'Failed') return 'Resolve';
   return 'Review';
 }
 
