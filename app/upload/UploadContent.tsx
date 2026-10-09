@@ -8,6 +8,7 @@ import { EmailForwardCard } from '@/components/EmailForwardCard';
 import { RecentUploadsTable, type UploadRow } from '@/components/RecentUploadsTable';
 import { createClient } from '@/lib/supabase/client';
 import type { Status } from '@/components/QueueRow';
+import { SlidersHorizontal, ChevronDown } from 'lucide-react';
 
 type RawInvoice = {
   id: string;
@@ -19,11 +20,33 @@ type RawInvoice = {
   extraction: any;
 };
 
+type StatusFilter = 'all' | Status;
+
+const FILTER_OPTIONS: { key: StatusFilter; label: string }[] = [
+  { key: 'all', label: 'All statuses' },
+  { key: 'Processing', label: 'Processing' },
+  { key: 'Review', label: 'Review' },
+  { key: 'Reconciled', label: 'Reconciled' },
+  { key: 'Exception', label: 'Exception' },
+  { key: 'Failed', label: 'Failed' },
+];
+
 export function UploadContent() {
   const [rows, setRows] = useState<UploadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [filter, setFilter] = useState<StatusFilter>('all');
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      const t = e.target as HTMLElement;
+      if (!t.closest('[data-filter]')) setFilterOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,9 +84,7 @@ export function UploadContent() {
         return;
       }
 
-      const normalized = (data ?? []).map(normalizeRow);
-      console.log('[upload] rows:', normalized.length);
-      setRows(normalized);
+      setRows((data ?? []).map(normalizeRow));
       setLoading(false);
     })();
 
@@ -72,7 +93,6 @@ export function UploadContent() {
     };
   }, [refreshKey]);
 
-  // Auto-refresh every 8s so users see pipeline progress live
   useEffect(() => {
     const t = setInterval(() => setRefreshKey((k) => k + 1), 8000);
     return () => clearInterval(t);
@@ -87,10 +107,18 @@ export function UploadContent() {
     return (avg * 100).toFixed(1);
   }, [rows]);
 
+  const filtered = useMemo(
+    () =>
+      filter === 'all' ? rows : rows.filter((r) => r.status === filter),
+    [rows, filter],
+  );
+
   const onUploaded = useCallback(() => {
-    // Immediate refresh — n8n writes to invoices within ~1s
     setTimeout(() => setRefreshKey((k) => k + 1), 800);
   }, []);
+
+  const currentLabel =
+    FILTER_OPTIONS.find((o) => o.key === filter)?.label ?? 'All statuses';
 
   return (
     <div className="flex h-screen bg-[#FCFCFA] text-neutral-900">
@@ -141,21 +169,42 @@ export function UploadContent() {
                 </p>
               </div>
 
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
+              <div className="relative" data-filter>
+                <button
+                  type="button"
+                  onClick={() => setFilterOpen((v) => !v)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-colors ${
+                    filter === 'all'
+                      ? 'border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50'
+                      : 'border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-800'
+                  }`}
                 >
-                  <path d="M4 6h16M7 12h10M10 18h4" strokeLinecap="round" />
-                </svg>
-                Filter
-              </button>
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  {currentLabel}
+                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </button>
+                {filterOpen && (
+                  <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-xl border border-neutral-200 bg-white p-1 shadow-lg">
+                    {FILTER_OPTIONS.map((o) => (
+                      <button
+                        key={o.key}
+                        type="button"
+                        onClick={() => {
+                          setFilter(o.key);
+                          setFilterOpen(false);
+                        }}
+                        className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                          filter === o.key
+                            ? 'bg-neutral-100 font-medium text-neutral-900'
+                            : 'text-neutral-700 hover:bg-neutral-50'
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {loading ? (
@@ -167,7 +216,7 @@ export function UploadContent() {
                 <strong>Failed to load:</strong> {errorMsg}
               </div>
             ) : (
-              <RecentUploadsTable rows={rows.slice(0, 5)} />
+              <RecentUploadsTable rows={filtered.slice(0, 8)} />
             )}
 
             <div className="flex items-center justify-end border-t border-neutral-100 px-5 py-3">
@@ -214,16 +263,8 @@ function normalizeRow(raw: RawInvoice): UploadRow {
   };
 }
 
-/**
- * Maps every n8n pipeline status to a UI Status.
- *
- * In-flight:  pending → extracting → extracted → matching
- * Terminal:   reconciled | review_required | exception
- *             approved_for_payment | rejected | failed
- */
 function normalizeStatus(s: string | null | undefined): Status {
   const v = (s ?? '').toLowerCase();
-
   if (
     v === 'pending' ||
     v === 'extracting' ||
@@ -232,7 +273,6 @@ function normalizeStatus(s: string | null | undefined): Status {
   ) {
     return 'Processing';
   }
-
   if (v === 'reconciled' || v.startsWith('recon')) return 'Reconciled';
   if (v === 'review_required' || v.startsWith('rev')) return 'Review';
   if (v === 'exception' || v.startsWith('exc')) return 'Exception';
@@ -240,7 +280,6 @@ function normalizeStatus(s: string | null | undefined): Status {
   if (v === 'paid') return 'Paid';
   if (v === 'rejected') return 'Rejected';
   if (v === 'failed') return 'Failed';
-
   return 'Review';
 }
 

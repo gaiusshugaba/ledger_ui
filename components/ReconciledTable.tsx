@@ -1,6 +1,7 @@
 // components/ReconciledTable.tsx
 'use client';
 
+import Link from 'next/link';
 import { Check } from 'lucide-react';
 
 export type ReconciledRow = {
@@ -48,14 +49,14 @@ export function ReconciledTable({ rows }: { rows: ReconciledRow[] }) {
             <Check className="h-3.5 w-3.5 text-[#03543F]" strokeWidth={3} />
           </div>
 
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-neutral-900">
+          <Link href={`/queue/${row.id}`} className="block min-w-0">
+            <p className="truncate text-sm font-medium text-neutral-900 hover:underline">
               {row.vendor}
             </p>
             <p className="truncate font-mono text-xs text-neutral-500">
               {row.invoiceNumber}
             </p>
-          </div>
+          </Link>
 
           <p className="text-right text-sm font-medium text-neutral-900">
             {row.amount}
@@ -68,12 +69,12 @@ export function ReconciledTable({ rows }: { rows: ReconciledRow[] }) {
           <p className="text-sm text-neutral-500">{row.processedAt}</p>
 
           <div className="flex justify-end">
-            <button
-              type="button"
+            <Link
+              href={`/queue/${row.id}`}
               className="rounded-full border border-neutral-200 bg-white px-5 py-1.5 text-xs font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50"
             >
               View
-            </button>
+            </Link>
           </div>
         </div>
       ))}

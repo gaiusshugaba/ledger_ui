@@ -13,6 +13,7 @@ import { AutomatedChecks, type CheckItem } from '@/components/AutomatedChecks';
 import { ExtractedFields } from '@/components/ExtractedFields';
 import { LineItemsEditor, type LineItemRow } from '@/components/LineItemsEditor';
 import { AuditTrail } from '@/components/AuditTrail';
+import { AuditHistoryModal } from '@/components/AuditHistoryModal';
 import { useCounts } from '@/lib/CountsContext';
 import { buildReasons } from '@/lib/buildReasons';
 
@@ -44,6 +45,7 @@ export function ReviewContent() {
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [auditOpen, setAuditOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -108,7 +110,6 @@ export function ReviewContent() {
   const flaggedReasons = useMemo(() => buildReasons(ex, match), [ex, match]);
   const checks = useMemo(() => buildChecks(ex, match), [ex, match]);
 
-  // ── Field edit handler ─────────────────────────────────
   async function handleFieldChange(key: string, newRaw: string) {
     if (!data || !ex) return;
 
@@ -177,7 +178,6 @@ export function ReviewContent() {
     setToast(`Saved ${column.label}`);
   }
 
-  // ── Line items save handler ────────────────────────────
   async function handleLineItemsChange(next: LineItemRow[]) {
     if (!data || !ex) return;
 
@@ -231,7 +231,6 @@ export function ReviewContent() {
     setToast('Line items saved');
   }
 
-  // ── Approve / Reject ───────────────────────────────────
   async function handleApprove() {
     if (!data) return;
     setApproving(true);
@@ -337,7 +336,6 @@ export function ReviewContent() {
 
   return (
     <div className="flex h-screen bg-[#F5F4F1] text-neutral-900">
-      {/* ── Left: viewer ─────────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -364,6 +362,7 @@ export function ReviewContent() {
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
+              onClick={() => setAuditOpen(true)}
               className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm transition-colors hover:bg-neutral-50"
             >
               <Clock className="h-3.5 w-3.5" />
@@ -407,16 +406,13 @@ export function ReviewContent() {
         </div>
       </div>
 
-      {/* ── Right: details panel ─────────────────────── */}
       <div className="w-[560px] shrink-0 overflow-y-auto bg-[#F5F4F1] px-6 pt-5 pb-8">
         <div className="space-y-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-neutral-200">
-          {/* WHY THIS IS FLAGGED */}
           <section>
             <SectionLabel>Why this is flagged</SectionLabel>
             <FlaggedReasonCard reasons={flaggedReasons} />
           </section>
 
-          {/* VENDOR MATCH */}
           <section>
             <SectionLabel>Vendor match</SectionLabel>
             <VendorMatchCard
@@ -435,13 +431,11 @@ export function ReviewContent() {
             />
           </section>
 
-          {/* AUTOMATED CHECKS */}
           <section>
             <SectionLabel>Automated checks</SectionLabel>
             <AutomatedChecks checks={checks} />
           </section>
 
-          {/* EXTRACTED FIELDS */}
           <section>
             <SectionLabel>Extracted fields &amp; confidence scores</SectionLabel>
             <ExtractedFields
@@ -520,13 +514,11 @@ export function ReviewContent() {
             />
           </section>
 
-          {/* LINE ITEMS */}
           <section>
             <SectionLabel>Line items</SectionLabel>
             <LineItemsEditor items={lineItems} onSave={handleLineItemsChange} />
           </section>
 
-          {/* AUDIT TRAIL */}
           <section>
             <SectionLabel>Audit trail</SectionLabel>
             <AuditTrail
@@ -557,6 +549,14 @@ export function ReviewContent() {
         </div>
       </div>
 
+      {auditOpen && (
+        <AuditHistoryModal
+          invoiceId={data.id}
+          invoiceNumber={ex?.invoice_number ?? null}
+          onClose={() => setAuditOpen(false)}
+        />
+      )}
+
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white shadow-lg">
           {toast}
@@ -566,15 +566,11 @@ export function ReviewContent() {
   );
 }
 
-// ─────────────────────────────────────────────────────
-// Automated checks — every row derives from real data
-// ─────────────────────────────────────────────────────
 function buildChecks(ex: any, match: any): CheckItem[] {
   const checks: CheckItem[] = [];
   const method = match?.match_method;
   const scores = match?.field_scores || {};
 
-  // ── 1. PO reference match ─────────────────────────────
   if (!ex?.po_number) {
     checks.push({
       id: 'po',
@@ -629,7 +625,6 @@ function buildChecks(ex: any, match: any): CheckItem[] {
     });
   }
 
-  // ── 2. Vendor identity vs PO (fraud check) ────────────
   const extractionConf = ex?.vendor_confidence ?? 0;
   const poVendorScore = scores.vendor;
 
@@ -663,7 +658,6 @@ function buildChecks(ex: any, match: any): CheckItem[] {
     });
   }
 
-  // ── 3. Duplicate detection ────────────────────────────
   if (match?.is_duplicate === true) {
     checks.push({
       id: 'duplicate',
@@ -680,7 +674,6 @@ function buildChecks(ex: any, match: any): CheckItem[] {
     });
   }
 
-  // ── 4. Line item matching ─────────────────────────────
   const liScore = scores.line_items ?? 0;
   const totalItems = Array.isArray(ex?.line_items) ? ex.line_items.length : 0;
   const matchedItems = (match?.matched_line_items || []).filter(
@@ -717,7 +710,6 @@ function buildChecks(ex: any, match: any): CheckItem[] {
     });
   }
 
-  // ── 5. Amount reconciliation ──────────────────────────
   const delta = match?.amount_delta;
   const deltaPct = match?.amount_delta_pct;
 
@@ -758,7 +750,6 @@ function buildChecks(ex: any, match: any): CheckItem[] {
     });
   }
 
-  // ── 6. Extraction quality ─────────────────────────────
   const lowFields: string[] = [];
   if ((ex?.vendor_confidence ?? 1) < 0.8) lowFields.push('Vendor');
   if ((ex?.invoice_number_confidence ?? 1) < 0.8) lowFields.push('Invoice #');
@@ -792,9 +783,6 @@ function buildChecks(ex: any, match: any): CheckItem[] {
   return checks;
 }
 
-// ─────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────
 const COLUMN_MAP: Record<
   string,
   { db: string; label: string; numeric: boolean }

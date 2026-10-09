@@ -27,7 +27,6 @@ export function RulesContent() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ── Load settings on mount ─────────────────────────────
   useEffect(() => {
     let cancelled = false;
     const supabase = createClient();
@@ -50,13 +49,21 @@ export function RulesContent() {
       for (const row of data ?? []) map[row.key] = row.value;
 
       if (map['matching.thresholds']) {
-        setAutoReconcile(Number(map['matching.thresholds'].auto ?? DEFAULT_THRESHOLDS.auto));
-        setReviewAbove(Number(map['matching.thresholds'].review ?? DEFAULT_THRESHOLDS.review));
+        setAutoReconcile(
+          Number(map['matching.thresholds'].auto ?? DEFAULT_THRESHOLDS.auto),
+        );
+        setReviewAbove(
+          Number(map['matching.thresholds'].review ?? DEFAULT_THRESHOLDS.review),
+        );
       }
 
       if (map['matching.amount_tolerance']) {
-        const abs = Number(map['matching.amount_tolerance'].absolute ?? DEFAULT_TOLERANCE.absolute);
-        const rel = Number(map['matching.amount_tolerance'].relative ?? DEFAULT_TOLERANCE.relative);
+        const abs = Number(
+          map['matching.amount_tolerance'].absolute ?? DEFAULT_TOLERANCE.absolute,
+        );
+        const rel = Number(
+          map['matching.amount_tolerance'].relative ?? DEFAULT_TOLERANCE.relative,
+        );
         setAbsTolerance(abs.toFixed(2));
         setRelTolerance((rel * 100).toString());
       }
@@ -69,7 +76,6 @@ export function RulesContent() {
     };
   }, []);
 
-  // ── Save handler ───────────────────────────────────────
   async function saveChanges() {
     setSaving(true);
     setErrorMsg(null);
@@ -120,7 +126,6 @@ export function RulesContent() {
     <div className="flex h-screen bg-[#FCFCFA] text-neutral-900">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        {/* Header */}
         <div className="border-b border-neutral-200 px-8 pt-6 pb-5">
           <div className="flex items-start justify-between gap-6">
             <div>
@@ -142,7 +147,9 @@ export function RulesContent() {
                 disabled={saving}
                 className="inline-flex items-center rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-neutral-800 disabled:opacity-60"
               >
-                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
@@ -156,7 +163,6 @@ export function RulesContent() {
             </div>
           )}
 
-          {/* Card 1: Reconciliation thresholds */}
           <section className="rounded-2xl border border-neutral-200 bg-white p-6">
             <header className="mb-6">
               <h2 className="text-base font-semibold text-neutral-900">
@@ -186,7 +192,6 @@ export function RulesContent() {
             </div>
           </section>
 
-          {/* Card 2: Amount tolerance */}
           <section className="rounded-2xl border border-neutral-200 bg-white p-6">
             <header className="mb-6 flex items-start justify-between gap-4">
               <div>
@@ -197,13 +202,10 @@ export function RulesContent() {
                   Rounding rules for amount matching
                 </p>
               </div>
-              <button
-                type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600"
-                aria-label="Preview rule"
-              >
-                <Eye className="h-4 w-4" />
-              </button>
+              <RulePreviewPopover
+                title="Amount tolerance"
+                body="When the difference between an invoice amount and its matched PO falls under the absolute or relative threshold, the variance is treated as rounding noise and does not affect the match confidence score."
+              />
             </header>
 
             <div className="grid grid-cols-2 gap-4">
@@ -226,7 +228,6 @@ export function RulesContent() {
             </div>
           </section>
 
-          {/* Card 3: Severity bands */}
           <section className="rounded-2xl border border-neutral-200 bg-white p-6">
             <header className="mb-5">
               <h2 className="text-base font-semibold text-neutral-900">
@@ -268,6 +269,40 @@ export function RulesContent() {
           </section>
         </div>
       </main>
+    </div>
+  );
+}
+
+function RulePreviewPopover({ title, body }: { title: string; body: string }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      const t = e.target as HTMLElement;
+      if (!t.closest('[data-rule-preview]')) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  return (
+    <div className="relative" data-rule-preview>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600"
+        aria-label="Preview rule"
+      >
+        <Eye className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-xl border border-neutral-200 bg-white p-4 shadow-lg">
+          <p className="text-xs font-semibold text-neutral-900">{title}</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-neutral-600">
+            {body}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

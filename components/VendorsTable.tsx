@@ -2,7 +2,13 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Plus, Pencil } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Pencil,
+  X,
+} from 'lucide-react';
 
 export type VendorInvoice = {
   id: string;
@@ -33,7 +39,21 @@ const MAIN_GRID =
 const INNER_GRID =
   'grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]';
 
-export function VendorsTable({ rows }: { rows: VendorRow[] }) {
+export function VendorsTable({
+  rows,
+  onAddAlias,
+  onEditAlias,
+  onRemoveAlias,
+}: {
+  rows: VendorRow[];
+  onAddAlias?: (vendorName: string, existingAliases: string[]) => void;
+  onEditAlias?: (
+    vendorName: string,
+    existingAliases: string[],
+    alias: string,
+  ) => void;
+  onRemoveAlias?: (vendorName: string, alias: string) => void;
+}) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (rows.length === 0) {
@@ -46,7 +66,6 @@ export function VendorsTable({ rows }: { rows: VendorRow[] }) {
 
   return (
     <div>
-      {/* Header */}
       <div
         className={`grid ${MAIN_GRID} items-center gap-4 border-b border-neutral-100 px-6 py-4 text-[11px] font-medium uppercase tracking-wider text-neutral-500`}
       >
@@ -62,7 +81,6 @@ export function VendorsTable({ rows }: { rows: VendorRow[] }) {
         const expanded = expandedId === v.id;
         return (
           <div key={v.id} className="border-b border-neutral-100 last:border-b-0">
-            {/* Main row */}
             <button
               type="button"
               onClick={() => setExpandedId(expanded ? null : v.id)}
@@ -113,7 +131,6 @@ export function VendorsTable({ rows }: { rows: VendorRow[] }) {
               </span>
             </button>
 
-            {/* Expanded panel */}
             {expanded && (
               <div className="border-t border-neutral-100 bg-neutral-50/40 px-6 py-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -131,6 +148,7 @@ export function VendorsTable({ rows }: { rows: VendorRow[] }) {
 
                   <button
                     type="button"
+                    onClick={() => onAddAlias?.(v.name, v.aliases)}
                     className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3.5 py-1.5 text-xs font-medium text-neutral-800 shadow-sm transition-colors hover:bg-neutral-50"
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -147,10 +165,25 @@ export function VendorsTable({ rows }: { rows: VendorRow[] }) {
                     v.aliases.map((a) => (
                       <span
                         key={a}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-medium text-neutral-800"
+                        className="group inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-medium text-neutral-800"
                       >
                         {a}
-                        <Pencil className="h-3 w-3 text-neutral-400" />
+                        <button
+                          type="button"
+                          onClick={() => onEditAlias?.(v.name, v.aliases, a)}
+                          aria-label={`Rename alias ${a}`}
+                          className="rounded-full p-0.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveAlias?.(v.name, a)}
+                          aria-label={`Remove alias ${a}`}
+                          className="rounded-full p-0.5 text-neutral-400 transition-colors hover:bg-[#FDE8E8] hover:text-[#9B1C1C]"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
                       </span>
                     ))
                   )}

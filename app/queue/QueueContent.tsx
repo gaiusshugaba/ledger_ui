@@ -3,8 +3,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
-import { QueueHeader } from '@/components/QueueHeader';
-import { QueueRow, type QueueInvoice } from '@/components/QueueRow';
+import { QueueHeader, type SortKey } from '@/components/QueueHeader';
+import { QueueRow, type QueueInvoice, type Status } from '@/components/QueueRow';
 import { normalizeInvoice } from '@/lib/normalizeInvoice';
 import { createClient } from '@/lib/supabase/client';
 import { useCounts } from '@/lib/CountsContext';
@@ -16,6 +16,7 @@ const CURRENT_ACTOR = 'G. Gana';
 export function QueueContent() {
   const [tab, setTab] = useState<Tab>('All');
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortKey>('severity');
   const [invoices, setInvoices] = useState<QueueInvoice[]>([]);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -89,9 +90,7 @@ export function QueueContent() {
           vendor: current.company,
         },
       });
-      if (auditErr) {
-        console.warn('[queue] audit insert failed:', auditErr);
-      }
+      if (auditErr) console.warn('[queue] audit insert failed:', auditErr);
       setToast(`Approved ${current.invoiceNumber}`);
       refreshCounts();
     }
@@ -111,7 +110,7 @@ export function QueueContent() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return invoices.filter((inv) => {
+    let out = invoices.filter((inv) => {
       if (tab === 'Review' && inv.status !== 'Review') return false;
       if (tab === 'Exceptions' && inv.status !== 'Exception') return false;
       if (!q) return true;
@@ -121,7 +120,30 @@ export function QueueContent() {
         (inv.reason ?? '').toLowerCase().includes(q)
       );
     });
-  }, [tab, query, invoices]);
+
+    out = [...out].sort((a, b) => {
+      switch (sort) {
+        case 'severity': {
+          const rank = (s: Status) =>
+            s === 'Exception' ? 0 : s === 'Review' ? 1 : 2;
+          const diff = rank(a.status) - rank(b.status);
+          if (diff !== 0) return diff;
+          return parseAmount(b.amount) - parseAmount(a.amount);
+        }
+        case 'amount_desc':
+          return parseAmount(b.amount) - parseAmount(a.amount);
+        case 'amount_asc':
+          return parseAmount(a.amount) - parseAmount(b.amount);
+        case 'age_asc':
+          return a.id.localeCompare(b.id);
+        case 'age_desc':
+        default:
+          return b.id.localeCompare(a.id);
+      }
+    });
+
+    return out;
+  }, [tab, query, invoices, sort]);
 
   const counts: Record<Tab, number> = {
     All: invoices.length,
@@ -139,6 +161,8 @@ export function QueueContent() {
           counts={counts}
           query={query}
           onQueryChange={setQuery}
+          sort={sort}
+          onSortChange={setSort}
         />
         <div className="space-y-3 px-8 py-6">
           {loading ? (
@@ -173,4 +197,9 @@ export function QueueContent() {
       </main>
     </div>
   );
+}
+
+function parseAmount(s: string): number {
+  const n = Number(String(s).replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
 }
