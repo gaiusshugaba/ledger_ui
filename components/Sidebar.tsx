@@ -1,6 +1,7 @@
 // components/Sidebar.tsx
 'use client';
 
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
   LayoutGrid,
@@ -14,6 +15,8 @@ import {
   History,
   UsersRound,
   ChevronsUpDown,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { useCounts } from '@/lib/CountsContext';
 
@@ -25,9 +28,36 @@ type NavItem = {
   countTone?: 'neutral' | 'danger' | 'success';
 };
 
+const STORAGE_KEY = 'ledger.sidebar.collapsed';
+
 export function Sidebar() {
   const pathname = usePathname();
   const { counts } = useCounts();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Load persisted state on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored === 'true') setCollapsed(true);
+    } catch {
+      /* ignore */
+    }
+    setMounted(true);
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(STORAGE_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   const operations: NavItem[] = [
     { label: 'Dashboard', href: '/', icon: LayoutGrid },
@@ -68,10 +98,15 @@ export function Sidebar() {
 
   function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
     return (
-      <div className="mt-6">
-        <p className="px-3 pb-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-          {label}
-        </p>
+      <div className="mt-6 first:mt-2">
+        {!collapsed && (
+          <p className="px-3 pb-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+            {label}
+          </p>
+        )}
+        {collapsed && (
+          <div className="mx-auto my-3 h-px w-6 bg-neutral-200" aria-hidden="true" />
+        )}
         <ul className="space-y-0.5">
           {items.map((item) => {
             const Icon = item.icon;
@@ -87,26 +122,53 @@ export function Sidebar() {
                 ? 'text-emerald-600'
                 : 'text-neutral-400';
 
+            const showCount =
+              typeof item.count === 'number' && item.count > 0;
+
             return (
               <li key={item.label}>
                 <a
                   href={item.href}
-                  className={`flex items-center gap-3 rounded-full px-3 py-2 text-sm transition-colors ${
+                  title={collapsed ? item.label : undefined}
+                  className={`group relative flex items-center rounded-full transition-colors ${
+                    collapsed
+                      ? 'justify-center px-2 py-2.5'
+                      : 'gap-3 px-3 py-2'
+                  } ${
                     isActive
                       ? 'bg-neutral-900 text-white'
                       : 'text-neutral-700 hover:bg-neutral-100'
                   }`}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  <span className="flex-1 truncate">{item.label}</span>
-                  {typeof item.count === 'number' && item.count > 0 && (
+
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {showCount && (
+                        <span
+                          className={`text-xs font-medium ${
+                            isActive ? 'text-white' : toneClass
+                          }`}
+                        >
+                          {item.count}
+                        </span>
+                      )}
+                    </>
+                  )}
+
+                  {/* Small dot indicator when collapsed + has count */}
+                  {collapsed && showCount && (
                     <span
-                      className={`text-xs font-medium ${
-                        isActive ? 'text-white' : toneClass
+                      className={`absolute right-2 top-1.5 h-1.5 w-1.5 rounded-full ${
+                        item.countTone === 'danger'
+                          ? 'bg-red-500'
+                          : item.countTone === 'success'
+                          ? 'bg-emerald-500'
+                          : 'bg-neutral-400'
                       }`}
-                    >
-                      {item.count}
-                    </span>
+                      aria-hidden="true"
+                    />
                   )}
                 </a>
               </li>
@@ -118,57 +180,85 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-neutral-200 bg-[#FAFAF8]">
-      <div className="flex items-center justify-between px-4 py-5">
-        <div className="flex items-center gap-3">
+    <aside
+      className={`flex h-screen shrink-0 flex-col border-r border-neutral-200 bg-[#FAFAF8] transition-[width] duration-200 ease-out ${
+        collapsed ? 'w-[68px]' : 'w-64'
+      }`}
+    >
+      {/* Header: logo + collapse toggle */}
+      <div
+        className={`flex items-center py-5 ${
+          collapsed ? 'flex-col gap-3 px-2' : 'justify-between px-4'
+        }`}
+      >
+        <div className={`flex items-center ${collapsed ? '' : 'gap-3'}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="Ledger" className="h-10 w-10 object-contain" />
-          <span className="text-lg font-semibold tracking-tight text-neutral-900">
-            Ledger
-          </span>
+          <img
+            src="/logo.svg"
+            alt="Ledger"
+            className="h-10 w-10 shrink-0 object-contain"
+          />
+          {!collapsed && (
+            <span className="text-lg font-semibold tracking-tight text-neutral-900">
+              Ledger
+            </span>
+          )}
         </div>
+
         <button
           type="button"
-          className="text-neutral-400 transition-colors hover:text-neutral-600"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
         >
-          <svg
-            viewBox="0 0 24 24"
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M9 4v16" />
-            <path d="m14 10-2 2 2 2" />
-          </svg>
+          {collapsed ? (
+            <PanelLeftOpen className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 pb-4">
+      <nav
+        className={`flex-1 overflow-y-auto pb-4 ${
+          collapsed ? 'px-2' : 'px-2'
+        }`}
+      >
         <NavGroup label="Operations" items={operations} />
         <NavGroup label="Configuration" items={configuration} />
         <NavGroup label="Administration" items={administration} />
       </nav>
 
-      <div className="border-t border-neutral-200 p-3">
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 rounded-2xl bg-white p-2.5 text-left shadow-sm ring-1 ring-neutral-200 transition-colors hover:bg-neutral-50"
-        >
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-xs font-semibold text-purple-700">
+      {/* User footer */}
+      <div className={`border-t border-neutral-200 ${collapsed ? 'p-2' : 'p-3'}`}>
+        {collapsed ? (
+          <button
+            type="button"
+            title="G. Gana, CPA · Finance Lead"
+            className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 text-xs font-semibold text-purple-700 ring-1 ring-neutral-200 transition-colors hover:bg-purple-200"
+          >
             GG
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-neutral-900">
-              G. Gana, CPA
-            </p>
-            <p className="truncate text-[11px] text-neutral-500">Finance Lead</p>
-          </div>
-          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
-        </button>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 rounded-2xl bg-white p-2.5 text-left shadow-sm ring-1 ring-neutral-200 transition-colors hover:bg-neutral-50"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-xs font-semibold text-purple-700">
+              GG
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-neutral-900">
+                G. Gana, CPA
+              </p>
+              <p className="truncate text-[11px] text-neutral-500">
+                Finance Lead
+              </p>
+            </div>
+            <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          </button>
+        )}
       </div>
     </aside>
   );
