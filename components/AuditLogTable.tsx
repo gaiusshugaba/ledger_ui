@@ -2,6 +2,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Cpu, ChevronDown, ChevronUp } from 'lucide-react';
 import { AuditDiffPanel } from './AuditDiffPanel';
 
@@ -49,6 +50,7 @@ export function AuditLogTable({ rows }: { rows: AuditLogEntry[] }) {
       {rows.map((row) => {
         const hasDiff = row.before != null || row.after != null;
         const expanded = expandedId === row.id;
+        const isInvoice = row.entityType.toLowerCase() === 'invoice';
 
         return (
           <div key={row.id} className="border-b border-neutral-100 last:border-b-0">
@@ -74,16 +76,32 @@ export function AuditLogTable({ rows }: { rows: AuditLogEntry[] }) {
                     <p className="truncate text-xs text-neutral-500">
                       {row.entityType}
                     </p>
-                    <p className="truncate font-mono text-xs text-neutral-800">
-                      {row.entityId}
-                    </p>
+                    {isInvoice && row.entityId && row.entityId !== '—' ? (
+                      <span
+                        role="link"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Navigate programmatically since we're inside a button
+                          window.location.href = `/queue/${row.entityId}`;
+                        }}
+                        className="cursor-pointer truncate font-mono text-xs text-blue-600 hover:underline"
+                      >
+                        {row.entityId}
+                      </span>
+                    ) : (
+                      <p className="truncate font-mono text-xs text-neutral-800">
+                        {row.entityId || '—'}
+                      </p>
+                    )}
                   </>
                 ) : (
                   <p className="text-xs text-neutral-400">—</p>
                 )}
               </div>
 
-              <p className="truncate text-sm text-neutral-700">{row.details || '—'}</p>
+              <p className="truncate text-sm text-neutral-700">
+                {row.details || '—'}
+              </p>
 
               <span className="justify-self-end text-neutral-400">
                 {hasDiff &&
@@ -112,8 +130,7 @@ export function AuditLogTable({ rows }: { rows: AuditLogEntry[] }) {
 }
 
 function ActorCell({ actor, type }: { actor: string; type: string }) {
-  const isSystem =
-    type === 'system' || actor.toLowerCase().includes('system');
+  const isSystem = type === 'system' || actor.toLowerCase().includes('system');
 
   if (isSystem) {
     return (

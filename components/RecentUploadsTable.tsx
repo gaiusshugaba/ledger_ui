@@ -1,6 +1,7 @@
 // components/RecentUploadsTable.tsx
 'use client';
 
+import Link from 'next/link';
 import { Upload as UploadIcon, Mail, Loader2 } from 'lucide-react';
 import type { Status } from './QueueRow';
 
@@ -20,6 +21,8 @@ const statusStyles: Record<string, string> = {
   Reconciled: 'bg-[#DEF7EC] text-[#03543F]',
   Paid: 'bg-[#E5E7EB] text-[#374151]',
   Processing: 'bg-[#DBEAFE] text-[#1E40AF]',
+  Failed: 'bg-[#FDE8E8] text-[#9B1C1C]',
+  Rejected: 'bg-[#E5E7EB] text-[#374151]',
 };
 
 const GRID =
@@ -47,56 +50,67 @@ export function RecentUploadsTable({ rows }: { rows: UploadRow[] }) {
         <span className="text-right">Actions</span>
       </div>
 
-      {rows.map((row) => (
-        <div
-          key={row.id}
-          className={`grid ${GRID} items-center gap-4 border-b border-neutral-100 px-6 py-5 last:border-b-0`}
-        >
-          <p className="truncate text-sm font-medium text-neutral-900">
-            {row.filename}
-          </p>
-
-          <div className="flex items-center gap-2 text-sm text-neutral-600">
-            {row.source === 'Email' ? (
-              <Mail className="h-4 w-4 text-neutral-400" />
-            ) : (
-              <UploadIcon className="h-4 w-4 text-neutral-400" />
-            )}
-            <span>{row.source}</span>
-          </div>
-
-          <div>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium ${
-                statusStyles[row.status] ?? statusStyles.Review
-              }`}
+      {rows.map((row) => {
+        const inFlight = row.status === 'Processing';
+        return (
+          <div
+            key={row.id}
+            className={`grid ${GRID} items-center gap-4 border-b border-neutral-100 px-6 py-5 last:border-b-0`}
+          >
+            <Link
+              href={`/queue/${row.id}`}
+              className="min-w-0 hover:underline"
             >
-              {row.status === 'Processing' && (
-                <Loader2 className="h-3 w-3 animate-spin" />
+              <p className="truncate text-sm font-medium text-neutral-900">
+                {row.filename}
+              </p>
+            </Link>
+
+            <div className="flex items-center gap-2 text-sm text-neutral-600">
+              {row.source === 'Email' ? (
+                <Mail className="h-4 w-4 text-neutral-400" />
+              ) : (
+                <UploadIcon className="h-4 w-4 text-neutral-400" />
               )}
-              {row.status}
-            </span>
+              <span>{row.source}</span>
+            </div>
+
+            <div>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium ${
+                  statusStyles[row.status] ?? statusStyles.Review
+                }`}
+              >
+                {inFlight && <Loader2 className="h-3 w-3 animate-spin" />}
+                {row.status}
+              </span>
+            </div>
+
+            <ConfidenceCell value={row.confidence} />
+
+            <p className="text-sm text-neutral-500">{row.uploadedAt}</p>
+
+            <div className="flex justify-end">
+              {inFlight ? (
+                <button
+                  type="button"
+                  disabled
+                  className="cursor-not-allowed rounded-full border border-neutral-200 bg-white px-5 py-2 text-xs font-medium text-neutral-300"
+                >
+                  Pending
+                </button>
+              ) : (
+                <Link
+                  href={`/queue/${row.id}`}
+                  className="rounded-full border border-neutral-200 bg-white px-5 py-2 text-xs font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50"
+                >
+                  {actionLabel(row.status)}
+                </Link>
+              )}
+            </div>
           </div>
-
-          <ConfidenceCell value={row.confidence} />
-
-          <p className="text-sm text-neutral-500">{row.uploadedAt}</p>
-
-          <div className="flex justify-end">
-            <button
-              type="button"
-              disabled={row.status === 'Processing'}
-              className={`rounded-full border border-neutral-200 bg-white px-5 py-2 text-xs font-medium shadow-sm transition-colors ${
-                row.status === 'Processing'
-                  ? 'cursor-not-allowed text-neutral-300'
-                  : 'text-neutral-700 hover:bg-neutral-50'
-              }`}
-            >
-              {row.status === 'Processing' ? 'Pending' : actionLabel(row.status)}
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -129,6 +143,7 @@ function ConfidenceCell({ value }: { value: number | null }) {
 function actionLabel(status: Status | string): string {
   if (status === 'Reconciled' || status === 'Paid' || status === 'Approved')
     return 'View';
-  if (status === 'Exception') return 'Resolve';
+  if (status === 'Exception' || status === 'Failed') return 'Resolve';
+  if (status === 'Rejected') return 'View';
   return 'Review';
 }

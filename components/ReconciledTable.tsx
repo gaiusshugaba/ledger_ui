@@ -49,8 +49,11 @@ export function ReconciledTable({ rows }: { rows: ReconciledRow[] }) {
             <Check className="h-3.5 w-3.5 text-[#03543F]" strokeWidth={3} />
           </div>
 
-          <Link href={`/queue/${row.id}`} className="block min-w-0">
-            <p className="truncate text-sm font-medium text-neutral-900 hover:underline">
+          <Link
+            href={`/queue/${row.id}`}
+            className="block min-w-0 hover:underline"
+          >
+            <p className="truncate text-sm font-medium text-neutral-900">
               {row.vendor}
             </p>
             <p className="truncate font-mono text-xs text-neutral-500">

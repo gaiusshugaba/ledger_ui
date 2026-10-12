@@ -1,6 +1,8 @@
 // components/ErrorsTable.tsx
 'use client';
 
+import Link from 'next/link';
+
 export type ErrorRow = {
   id: string;
   timestamp: string;
@@ -9,10 +11,11 @@ export type ErrorRow = {
   errorType: string;
   errorMessage: string;
   severity: 'critical' | 'warning' | 'info';
+  invoiceId: string | null;
 };
 
 const GRID =
-  'grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)]';
+  'grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,0.7fr)]';
 
 const severityStyles: Record<
   ErrorRow['severity'],
@@ -42,6 +45,7 @@ export function ErrorsTable({ rows }: { rows: ErrorRow[] }) {
         <span>Step</span>
         <span>Error Type</span>
         <span>Error Message</span>
+        <span className="text-right">Actions</span>
       </div>
 
       {rows.map((row) => {
@@ -71,6 +75,19 @@ export function ErrorsTable({ rows }: { rows: ErrorRow[] }) {
             <p className="truncate text-sm text-neutral-600">
               {row.errorMessage}
             </p>
+
+            <div className="flex justify-end">
+              {row.invoiceId ? (
+                <Link
+                  href={`/queue/${row.invoiceId}`}
+                  className="rounded-full border border-neutral-200 bg-white px-4 py-1.5 text-xs font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50"
+                >
+                  View invoice
+                </Link>
+              ) : (
+                <span className="text-xs text-neutral-300">—</span>
+              )}
+            </div>
           </div>
         );
       })}

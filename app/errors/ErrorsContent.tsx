@@ -48,9 +48,6 @@ export function ErrorsContent() {
         return;
       }
 
-      console.log('[errors] rows:', data?.length ?? 0);
-      console.log('[errors] first row:', JSON.stringify(data?.[0], null, 2));
-
       setRows((data ?? []).map(normalizeRow));
       setLoading(false);
     })();
@@ -71,7 +68,6 @@ export function ErrorsContent() {
     <div className="flex h-screen bg-[#FCFCFA] text-neutral-900">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        {/* Header */}
         <div className="border-b border-neutral-200 px-8 pt-6 pb-5">
           <div className="flex items-start justify-between gap-6">
             <div>
@@ -88,7 +84,9 @@ export function ErrorsContent() {
         <div className="px-8 py-6">
           <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
             {loading ? (
-              <p className="py-24 text-center text-sm text-neutral-400">Loading…</p>
+              <p className="py-24 text-center text-sm text-neutral-400">
+                Loading…
+              </p>
             ) : errorMsg ? (
               <div className="m-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                 <strong>Failed to load:</strong> {errorMsg}
@@ -111,7 +109,6 @@ export function ErrorsContent() {
   );
 }
 
-// ── Helpers ────────────────────────────────────────────
 function normalizeRow(raw: RawError): ErrorRow {
   return {
     id: raw.id,
@@ -121,6 +118,7 @@ function normalizeRow(raw: RawError): ErrorRow {
     errorType: raw.error_type ?? '—',
     errorMessage: raw.error_message ?? '—',
     severity: normalizeSeverity(raw.severity),
+    invoiceId: raw.invoice_id,
   };
 }
 
