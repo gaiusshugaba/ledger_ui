@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { CountsProvider } from '@/lib/CountsContext';
+import { MobileGuard } from '@/components/MobileGuard';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -19,7 +20,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <CountsProvider>{children}</CountsProvider>
+        <MobileGuard>
+          <CountsProvider>{children}</CountsProvider>
+        </MobileGuard>
       </body>
     </html>
   );
