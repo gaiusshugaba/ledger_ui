@@ -48,7 +48,7 @@ export function DashboardContent() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const [dateRange, setDateRange] = useState<DateRange>('30');
+  const [dateRange, setDateRange] = useState<DateRange>('all');
   const [dateOpen, setDateOpen] = useState(false);
 
   useEffect(() => {
